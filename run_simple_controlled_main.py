@@ -93,7 +93,7 @@ class SimpleControlledLogger:
         
         # Console handler
         console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
+        console_handler.setLevel(logging.DEBUG)  # Enable debug for console too
         
         # Formatter
         formatter = logging.Formatter(
@@ -383,7 +383,7 @@ async def main():
     logger = controlled_logger.logger
     
     # Execution parameters
-    EXECUTION_DURATION = 300  # Run for 5 minutes (300 seconds)
+    EXECUTION_DURATION = 120  # Run for 2 minutes (120 seconds) for testing
     
     logger.info("🚀 Starting Simple Controlled SuperTradeX Main Script")
     logger.info(f"⏱️  Execution duration: {EXECUTION_DURATION} seconds")

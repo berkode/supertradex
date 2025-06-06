@@ -247,7 +247,7 @@ class DexScreenerAPI:
                     return {"pairs": []}
             elif isinstance(data, list):
                 # API returned a list directly. This might happen for single token queries sometimes.
-                logger.warning(f"Received a list directly from {url} for {addresses_str}, expected a dict. Wrapping list in {{'pairs': ...}} structure.")
+                logger.debug(f"Received a list directly from {url} for {addresses_str}, expected a dict. Wrapping list in {{'pairs': ...}} structure.")
                 # If it was a single token request and we got a list, it should ideally contain one item.
                 # TokenScanner._fetch_detailed_token_data_map expects the value for a single mint to be the dict itself, not a list.
                 # However, this method's contract is to return {'pairs': [...]}.
