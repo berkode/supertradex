@@ -1,22 +1,26 @@
 import os
 import requests
 import logging
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
+from typing import Dict, Any, Optional
+import httpx
+from config.settings import Settings
 
 # Configure logging for the module
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("RaydiumAPI")
 
+
 class RaydiumAPI:
     """Class to interact with the Raydium V3 API."""
 
-    BASE_URL = os.getenv("RAYDIUM_API_BASE_URL", "https://api-v3.raydium.io")
+    def __init__(self, settings: Settings):
+        """Initialize with settings."""
+        self.settings = settings
+        self.api_url = settings.RAYDIUM_API_URL
+        self.http_timeout = settings.HTTP_TIMEOUT
+        logger.debug(f"RaydiumAPI initialized with URL: {self.api_url}")
 
-    @staticmethod
-    def _make_request(endpoint, params=None):
+    def _make_request(self, endpoint, params=None):
         """Helper function to make GET requests to the API.
 
         Args:
@@ -29,10 +33,10 @@ class RaydiumAPI:
         Raises:
             Exception: For any API errors or failures.
         """
-        url = f"{RaydiumAPI.BASE_URL}{endpoint}"
+        url = f"{self.api_url}{endpoint}"
         try:
             logger.info(f"Making request to {url} with params: {params}")
-            response = requests.get(url, params=params)
+            response = requests.get(url, params=params, timeout=self.http_timeout)
             response.raise_for_status()
             data = response.json()
 
@@ -46,44 +50,39 @@ class RaydiumAPI:
             logger.exception(f"Request failed for {url}: {e}")
             raise
 
-    @classmethod
-    def get_version(cls):
+    def get_version(self):
         """Fetch the current UI version of Raydium V3.
 
         Returns:
             dict: Version information.
         """
-        return cls._make_request("/main/version")
+        return self._make_request("/main/version")
 
-    @classmethod
-    def get_chain_time(cls):
+    def get_chain_time(self):
         """Fetch the current chain time from the Raydium API.
 
         Returns:
             dict: Chain time information.
         """
-        return cls._make_request("/main/chain-time")
+        return self._make_request("/main/chain-time")
 
-    @classmethod
-    def get_tvl_and_volume(cls):
+    def get_tvl_and_volume(self):
         """Fetch the total value locked (TVL) and 24-hour trading volume.
 
         Returns:
             dict: TVL and volume data.
         """
-        return cls._make_request("/main/info")
+        return self._make_request("/main/info")
 
-    @classmethod
-    def get_stake_pools(cls):
+    def get_stake_pools(self):
         """Fetch the available stake pools.
 
         Returns:
             dict: Stake pool data.
         """
-        return cls._make_request("/main/stake-pools")
+        return self._make_request("/main/stake-pools")
 
-    @classmethod
-    def get_pool_info_by_ids(cls, pool_ids):
+    def get_pool_info_by_ids(self, pool_ids):
         """Fetch pool information by pool IDs.
 
         Args:
@@ -93,10 +92,9 @@ class RaydiumAPI:
             dict: Pool information.
         """
         params = {"pool_ids": ",".join(pool_ids)}
-        return cls._make_request("/pools/info/ids", params=params)
+        return self._make_request("/pools/info/ids", params=params)
 
-    @classmethod
-    def get_farm_pool_info(cls, farm_ids):
+    def get_farm_pool_info(self, farm_ids):
         """Fetch farm pool information by IDs.
 
         Args:
@@ -106,10 +104,9 @@ class RaydiumAPI:
             dict: Farm pool information.
         """
         params = {"farm_ids": ",".join(farm_ids)}
-        return cls._make_request("/farms/info/ids", params=params)
+        return self._make_request("/farms/info/ids", params=params)
 
-    @classmethod
-    def get_mint_price(cls, mint_address):
+    def get_mint_price(self, mint_address):
         """Fetch the mint price for a specific mint address.
 
         Args:
@@ -119,5 +116,4 @@ class RaydiumAPI:
             dict: Mint price information.
         """
         params = {"mint": mint_address}
-        return cls._make_request("/mint/price", params=params)
-
+        return self._make_request("/mint/price", params=params)

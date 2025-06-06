@@ -9,21 +9,30 @@ load_dotenv()
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger("RugChecker")
+logger = logging.getLogger("DumpChecker")
 
 
-class RugChecker:
+class DumpChecker:
     """
-    Class to perform a final rug pull detection check using DexScreener before executing trades.
+    Class to perform a final dump detection check using DexScreener before executing trades.
     """
-    def __init__(self):
+    def __init__(self, http_client=None, settings=None):
         """
-        Initialize the RugChecker with environment configurations.
+        Initialize the DumpChecker with shared resources and configurations.
+        
+        Args:
+            http_client: Shared HTTP client instance
+            settings: Settings instance containing configuration
         """
-        self.dex_screener_api_url = os.getenv("DEX_SCREENER_API_URL", "https://api.dexscreener.io/latest/dex/tokens")
-        self.liquidity_threshold = float(os.getenv("LIQUIDITY_THRESHOLD", 10000.0))
+        self.http_client = http_client
+        self.settings = settings
+        
+        # Load settings from Settings instance
+        self.dex_screener_api_url = getattr(settings, 'DEXSCREENER_API_URL', 'https://api.dexscreener.io/latest/dex/tokens')
+        self.liquidity_threshold = float(getattr(settings, 'MIN_LIQUIDITY', 1000.0))
+        
         logger.info(
-            "RugChecker initialized with DexScreener API: %s and liquidity threshold: %.2f USD",
+            "DumpChecker initialized with DexScreener API: %s and liquidity threshold: %.2f USD",
             self.dex_screener_api_url,
             self.liquidity_threshold,
         )
@@ -50,44 +59,42 @@ class RugChecker:
             logger.error("Failed to fetch token data for %s: %s", token_address, str(e))
             return None
 
-    def is_rug_safe(self, token_address: str) -> bool:
+    def is_dump_safe(self, token_address: str) -> bool:
         """
-        Perform a final rug check on a token.
+        Perform a final dump check on a token.
 
         Args:
             token_address (str): The blockchain address of the token.
 
         Returns:
-            bool: True if the token passes the rug check, False otherwise.
+            bool: True if the token passes the dump check, False otherwise.
         """
         token_data = self.fetch_token_data(token_address)
         if not token_data:
-            logger.warning("No data available for token %s. Rug check failed.", token_address)
+            logger.warning("No data available for token %s. Dump check failed.", token_address)
             return False
 
         # Check liquidity
         liquidity = token_data.get("liquidity", {}).get("usd", 0)
         if liquidity < self.liquidity_threshold:
             logger.warning(
-                "Token %s failed rug check due to insufficient liquidity: %.2f USD (Threshold: %.2f USD).",
+                "Token %s failed dump check due to insufficient liquidity: %.2f USD (Threshold: %.2f USD).",
                 token_address, liquidity, self.liquidity_threshold,
             )
             return False
 
-        logger.info("Token %s passed the final rug check with liquidity: %.2f USD.", token_address, liquidity)
+        logger.info("Token %s passed the final dump check with liquidity: %.2f USD.", token_address, liquidity)
         return True
 
-    def validate_token(self, token_address: str) -> bool:
+    def validate_token(self, mint: str) -> bool:
         """
         Wrapper to validate the token before executing trades.
 
         Args:
-            token_address (str): The blockchain address of the token.
+            mint (str): The blockchain address of the token.
 
         Returns:
             bool: True if the token passes validation, False otherwise.
         """
-        logger.info("Starting final rug check for token %s.", token_address)
-        return self.is_rug_safe(token_address)
-
-
+        logger.info("Starting final dump check for token %s.", mint)
+        return self.is_dump_safe(mint) 

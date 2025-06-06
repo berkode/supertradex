@@ -5,20 +5,34 @@ By Magna Opus Technologies
 
 import os
 import logging
-from dotenv import load_dotenv
-from config import (
+from .config import (
     Settings,
     LoggingConfig,
     SolanaConfig,
     FiltersConfig,
-    Thresholds,
-    DexScreenerAPIConfig,
-    RaydiumAPIConfig,
+    DexScreenerAPI,
+    RaydiumAPI,
+    TwitterConfig
 )
 from utils.logger import get_logger
+from config.settings import initialize_settings
 
-# Load environment variables from .env file
-load_dotenv()
+# Initialize settings first
+initialize_settings()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+# Create output directories if they don't exist
+os.makedirs('outputs', exist_ok=True)
+os.makedirs('data', exist_ok=True)
+
+# Initialize global settings
+settings = Settings()
 
 # Global logger setup
 logger = get_logger("SynthronCryptoTrader")
@@ -55,26 +69,25 @@ def initialize_configurations():
     try:
         # Load configurations
         settings = Settings()
-        solana_config = SolanaConfig()
+        solana_config = SolanaConfig(settings)
         filters_config = FiltersConfig()
-        thresholds = Thresholds()
-        dex_screener_config = DexScreenerAPIConfig()
-        raydium_config = RaydiumAPIConfig()
+        dex_screener_config = DexScreenerAPI()
+        raydium_config = RaydiumAPI(settings)
+        twitter_config = TwitterConfig()
         LoggingConfig()  # Apply logging configuration globally
 
         # Log configuration details (sanitized where necessary)
         logger.debug(f"Settings: {settings}")
         logger.debug(f"SolanaConfig: {solana_config}")
         logger.debug(f"FiltersConfig: {filters_config}")
-        logger.debug(f"Thresholds: {thresholds}")
         logger.info("Configurations initialized successfully.")
         return {
             "settings": settings,
             "solana_config": solana_config,
             "filters_config": filters_config,
-            "thresholds": thresholds,
             "dex_screener_config": dex_screener_config,
             "raydium_config": raydium_config,
+            "twitter_config": twitter_config
         }
     except Exception as e:
         logger.error(f"Failed to initialize configurations: {e}")

@@ -1,0 +1,14 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Your atmost and first aim is to make the existing code work to start with auto trading asap. Do not try to improve the code for the moment, unless it is critical.
+
+Note to always use "mint" as the main key for tokens, not tokenAddress, mint_address or anything similar. Always convert API token adress data to mint field.
+
+Always refer as token, not coin. 
+
+NEVER create new folders or files. Always work on existing files, modules and code.
+Do not create new modules, unless it is neccessary.
+

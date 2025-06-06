@@ -1,0 +1,133 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.env
+.venv
+env.bak/
+venv.bak/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.pydevproject
+.settings/
+
+# Environment and Secrets
+.env
+.env.*
+!.env.example
+.env.encrypted
+.env.temp
+*.env
+config/.env
+config.py
+app/config.py
+secrets.env
+*.pem
+*.key
+*.cert
+
+# Logs and Databases
+*.log
+*.sqlite
+*.db
+*.sqlite3
+logs/
+*.csv
+*.json
+!package.json
+!package-lock.json
+
+# Docker
+.docker/
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+*.dockerfile
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Documentation
+docs/_build/
+site/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Project specific
+outputs/
+trader.db
+supertradex.egg-info/
+*.back
+*.backup
+*.bak
+*.old
+*.tmp
+*.temp
+*.tmp.*

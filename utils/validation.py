@@ -4,8 +4,8 @@ import logging
 from typing import List, Optional
 
 # Configure logger
-logger = logging.getLogger("utils.validation")
-logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
+# logger.setLevel(logging.INFO) # Removed hardcoded level
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(formatter)

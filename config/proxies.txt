@@ -1,0 +1,5 @@
+# Format: protocol://username:password@host:port
+# Example proxies (replace with your actual proxies):
+# http://user:pass@proxy1.example.com:8080
+# https://user:pass@proxy2.example.com:8080
+# socks5://user:pass@proxy3.example.com:1080

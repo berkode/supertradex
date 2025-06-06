@@ -5,6 +5,7 @@ import requests
 from dotenv import load_dotenv
 from nacl.signing import SigningKey
 from nacl.encoding import HexEncoder
+from solders.keypair import Keypair
 
 # Load environment variables from .env
 load_dotenv()
@@ -17,25 +18,58 @@ class ArbExecutor:
     """
     Class to execute arbitrage opportunities across supported markets.
     """
-    def __init__(self):
+    def __init__(self, 
+                 solana_client=None,
+                 http_client=None,
+                 settings=None,
+                 wallet_manager=None):
         """
-        Initialize the ArbExecutor with environment configurations.
+        Initialize the ArbExecutor with shared resources and configurations.
+        
+        Args:
+            solana_client: Shared Solana client instance
+            http_client: Shared HTTP client instance
+            settings: Settings instance containing configuration
+            wallet_manager: WalletManager instance for wallet operations
         """
-        self.raydium_api_url = os.getenv("RAYDIUM_API_URL", "https://api.raydium.io/v1/orders")
-        self.wallet_address = os.getenv("WALLET_ADDRESS")
-        self.private_key_hex = os.getenv("PRIVATE_KEY")  # Hex-encoded private key
-        self.slippage_tolerance = float(os.getenv("SLIPPAGE_TOLERANCE", 0.5))  # Default: 0.5%
-        self.default_gas_limit = int(os.getenv("DEFAULT_GAS_LIMIT", 200000))
-        self.arbitrage_threshold = float(os.getenv("ARBITRAGE_THRESHOLD", 0.2))  # Minimum profit threshold in %
+        self.solana_client = solana_client
+        self.http_client = http_client
+        self.settings = settings
+        
+        # Get wallet info from wallet_manager
+        if wallet_manager:
+            self.wallet_address = wallet_manager.get_public_key()
+            keypair = wallet_manager.get_keypair()
+            if keypair and isinstance(keypair, Keypair):
+                # Get the keypair bytes - first 32 bytes are private key
+                keypair_bytes = keypair.to_bytes()
+                self.private_key_hex = keypair_bytes[:32].hex()
+            else:
+                self.private_key_hex = None
+        else:
+            self.wallet_address = None
+            self.private_key_hex = None
+            
+        # Load settings from Settings instance
+        self.slippage_tolerance = float(getattr(settings, 'SLIPPAGE_TOLERANCE', 0.5))
+        self.default_gas_limit = int(getattr(settings, 'DEFAULT_GAS_LIMIT', 200000))
+        self.arbitrage_threshold = float(getattr(settings, 'ARBITRAGE_THRESHOLD', 0.2))
+        self.raydium_api_url = settings.RAYDIUM_API_URL
+        
         logger.info("ArbExecutor initialized for wallet: %s", self.wallet_address)
 
         # Ensure wallet and private key are set
         if not self.wallet_address or not self.private_key_hex:
-            logger.error("WALLET_ADDRESS and PRIVATE_KEY must be set in the .env file.")
-            raise ValueError("WALLET_ADDRESS and PRIVATE_KEY are required for ArbExecutor.")
+            logger.error("Wallet manager must be provided with valid wallet credentials.")
+            raise ValueError("Wallet manager with valid credentials is required for ArbExecutor.")
 
         # Load signing key
-        self.signing_key = SigningKey(self.private_key_hex, encoder=HexEncoder)
+        try:
+            self.signing_key = SigningKey(bytes.fromhex(self.private_key_hex))
+            logger.info("Successfully initialized signing key")
+        except Exception as e:
+            logger.error(f"Failed to initialize signing key: {str(e)}")
+            raise
 
     def _sign_transaction(self, payload: Dict) -> Dict:
         """

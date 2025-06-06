@@ -14,24 +14,39 @@ class SlippageChecker:
     """
     Class to ensure trades stay within defined slippage limits.
     """
-    def __init__(self, default_slippage_tolerance: float = 0.5):
+    def __init__(self, settings=None, db=None, http_client=None, default_slippage_tolerance: float = 0.5):
         """
-        Initialize the slippage checker.
+        Initialize the slippage checker with shared resources and configurations.
 
         Args:
+            settings: Settings instance containing configuration
+            db: TokenDatabase instance for data persistence
+            http_client: Shared HTTP client for API requests
             default_slippage_tolerance (float): Default allowable slippage in percentage.
         """
-        self.default_slippage_tolerance = default_slippage_tolerance  # e.g., 0.5% slippage
+        self.settings = settings
+        self.db = db
+        self.http_client = http_client
+        
+        # Load settings from Settings instance
+        self.default_slippage_tolerance = float(getattr(settings, 'SLIPPAGE_TOLERANCE', default_slippage_tolerance))
         self.slippage_tolerances: Dict[str, float] = {}  # Per-asset slippage tolerances
         self.lock = threading.Lock()  # Ensure thread safety
+        
+        # Initialize database if db is provided, otherwise use default
+        if db:
+            self.db_file = db.db_path
+        else:
+            self.db_file = "slippage_data.db"
+            
         self._initialize_database()
-        logger.info("SlippageChecker initialized with default tolerance: %.2f%%", default_slippage_tolerance)
+        logger.info("SlippageChecker initialized with default tolerance: %.2f%%", self.default_slippage_tolerance)
 
     def _initialize_database(self):
         """
         Initialize the database for tracking slippage data.
         """
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(self.db_file) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS slippage_records (
@@ -59,7 +74,7 @@ class SlippageChecker:
             slippage_percentage (float): Calculated slippage percentage.
             within_tolerance (bool): Whether the trade was within tolerance.
         """
-        with sqlite3.connect(DB_FILE) as conn:
+        with sqlite3.connect(self.db_file) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO slippage_records (asset, expected_price, executed_price, 

@@ -1,0 +1,234 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# .cursor/rules/global-agent-rules.mdc
+
+# Core Principles
+principle "single-source-of-truth" {
+  description = "Environment files (.env.encrypted and .env) are the single source of truth for all variable values."
+  enforcement = "All variable values must originate from config/.env.encrypted or config/.env. Configuration files (settings, thresholds, filters_config) under the config directory read from environment files, and application code (via main.py) reads only from configuration files, never directly from environment files."
+}
+
+principle "global-platform-mentality" {
+  description = "Maintain a global approach for the platform to ensure consistency and maintainability."
+  enforcement = "Use a global approach for initialization, logging, and error handling. Apply changes in the minimum number of files possible. Do not create new directories, files, or modules unless absolutely necessary. Focus on making existing code functional for auto-trading, not improving it, unless critical."
+}
+
+principle "naming-conventions" {
+  description = "Use consistent naming for tokens and keys."
+  enforcement = "Always use 'mint' as the main key for tokens (not tokenAddress, mint_address, etc.). Convert API token address data to the 'mint' field. Refer to tokens as 'token', not 'coin'."
+}
+
+# AI Agent Design Principles
+rule "start-simple-agent" {
+  description = "Begin with the simplest agent solution for coding tasks."
+  when = "designing or implementing an AI agent for auto-trading"
+  then = "Ensure that:
+    - Start with a single LLM call using retrieval and in-context examples.
+    - Optimize the single call before moving to multi-step agentic systems.
+    - Evaluate trade-offs: only implement an agent if the performance gain justifies the increased cost and latency.
+    - Design the agent to be as simple as possible, adding complexity only when it clearly improves results."
+}
+
+rule "transparent-agent-planning" {
+  description = "Ensure the agent’s planning steps are explicit and transparent."
+  when = "planning or debugging with an AI agent"
+  then = "Instruct the agent to:
+    - Make planning steps explicit in markdown format for debugging and comprehension.
+    - Use prompt chaining for sequential tasks (e.g., generating code, then refining it).
+    - Tailor capabilities (retrieval, tools, memory) to the specific needs of the auto-trading project."
+}
+rule "adapt-workflow-patterns" {
+  description = "Combine and adjust workflow patterns based on project needs."
+  when = "implementing agent workflows"
+  then = "Apply the following patterns as needed:
+    - Use routing for categorizing inputs (e.g., bug fixes vs. feature additions).
+    - Use parallelization for independent subtasks (e.g., reviewing different files).
+    - Use orchestrator-workers for complex tasks (e.g., editing multiple files dynamically).
+    - Use evaluator-optimizer for iterative improvements (e.g., refining code based on test feedback)."
+}
+
+rule "trustworthy-decision-making" {
+  description = "Ensure the agent’s decisions are reliable for auto-trading tasks."
+  when = "deploying an agent for coding tasks"
+  then = "Ensure that:
+    - Test the agent extensively in sandboxed environments.
+    - Add guardrails to limit errors (e.g., validate token data conversions to 'mint').
+    - Deploy agents for open-ended tasks (e.g., resolving complex GitHub issues) only after thorough testing."
+}
+
+# Tool Development for AI Agent
+rule "effective-tool-development" {
+  description = "Develop intuitive, well-documented tools for the AI agent."
+  when = "creating or using tools for the agent"
+  then = "Ensure that:
+    - Build a clear agent-computer interface (ACI) with well-documented, tested tools.
+    - Design tools with simple parameters and intuitive usage patterns for the LLM.
+    - Provide detailed documentation, including examples, edge cases, and distinctions between similar tools.
+    - Test tools with the LLM using varied auto-trading scenarios (e.g., token data conversion to 'mint').
+    - Use straightforward formats (e.g., markdown over JSON for code) to minimize errors.
+    - Design tools to prevent mistakes (e.g., require absolute file paths, following poka-yoke principles)."
+}
+
+# Planning and Instructions
+rule "create-clear-plan" {
+  description = "Ensure a detailed plan is created before coding, adhering to environment variable and AI agent principles."
+  when = "starting a new feature or task for auto-trading"
+  then = "Follow these steps:
+    - Ask Claude to create a clear and detailed plan in markdown, ensuring the plan respects the environment variable flow: config/.env → config/ files → application code.
+    - Ensure the plan aligns with AI agent principles: start simple, prioritize transparency, and tailor capabilities to auto-trading needs.
+    - Critique the plan and ask Claude to refine it, verifying no default values or constants are added directly in code or config files.
+    - Add the final plan to instructions.md.
+    - Instruct Cursor to:
+      - Refer to the plan in instructions.md when generating code.
+      - Use Composer agent to execute the plan by pasting the plan into it.
+      - Ensure all variable values originate from config/.env or config/.env.encrypted.
+      - Use 'mint' as the key for tokens and refer to tokens as 'token', not 'coin'."
+}
+
+rule "chatgpt-planning-assist" {
+  description = "Use chatgpt to assist in planning while maintaining environment variable and naming integrity."
+  when = "creating or refining a plan"
+  then = "Use chatgpt to:
+    - Generate an initial plan for the task, ensuring no direct variable assignments in code or config files.
+    - Add a layer of planning by reviewing and critiquing the plan for adherence to the environment variable flow and AI agent principles.
+    - Ensure naming conventions are followed ('mint' for token keys, 'token' not 'coin').
+    - Paste the refined plan into Cursor’s Composer agent for execution."
+}
+
+# Testing Workflow
+rule "test-first-approach" {
+  description = "Follow a test-first Edit-Test loop for incremental development, respecting environment variable and naming rules."
+  when = "implementing new code or features for auto-trading"
+  then = "Follow these steps:
+    - Write a test case that fails for the new feature or increment, ensuring tests do not hardcode variable values.
+    - Create test files only under the tests directory.
+    - Instruct Cursor (preferably in Agent mode) to write code to make the test pass, reading variables only from configuration files in the config directory.
+    - Ensure token data uses 'mint' as the key and refers to 'token', not 'coin'.
+    - Run the test to verify the result, after activating the virtual environment with `source ./.venv/bin/activate`.
+    - If the test fails, instruct Cursor to analyze the failure and fix the code without adding default values or constants.
+    - Repeat until the test passes.
+    - Once the test passes, prompt the developer to review the changes."
+}
+
+rule "write-small-increments" {
+  description = "Define small, incremental tasks for testing while minimizing file changes."
+  when = "writing tests or code"
+  then = "Ensure that:
+    - Tests and code increments are small and focused.
+    - Each test covers a single behavior or edge case.
+    - Code changes address only the failing test case.
+    - Implement changes in the minimum number of files possible, avoiding new directories or modules unless absolutely necessary."
+}
+
+# Debugging and Error Handling
+rule "chain-of-thought-debugging" {
+  description = "Encourage chain of thought in debugging prompts, respecting environment variable flow and naming conventions."
+  when = "encountering errors or bugs"
+  then = "Instruct Cursor to:
+    - Write a detailed report listing all files involved and their actions, ensuring variable usage follows the config/.env → config/ files → application code flow.
+    - Use a chain-of-thought approach to describe the debugging process, ensuring transparency as per AI agent principles.
+    - Ask Claude or chatgpt to analyze the issue and suggest fixes, ensuring no direct variable assignments are introduced.
+    - Verify that token data uses 'mint' as the key and refers to 'token', not 'coin'.
+    - If needed, use glitchgest.com to ingest relevant files (filter by extension) in a single page for further analysis."
+}
+
+# Version Control
+rule "frequent-git-commits" {
+  description = "Keep Git commits short and explicit, focusing on minimal changes."
+  when = "making code changes"
+  then = "Ensure that:
+    - Changes are committed frequently to version control.
+    - Each commit contains a small, logical set of changes.
+    - Commit messages are clear and describe the change explicitly.
+    - Focus on making existing code functional for auto-trading, not improving it, unless critical."
+}
+
+rule "manage-context-length" {
+  description = "Start new chats to manage context length and maintain focus."
+  when = "context becomes too long during a session"
+  then = "Instruct the developer to:
+    - Start a new chat session to reset the context.
+    - Summarize the previous context if needed for continuity, ensuring environment variable and naming rules are still followed."
+}
+
+# Context Management
+rule "exclude-irrelevant-files" {
+  description = "Use .cursorignore to exclude irrelevant files, focusing on the config directory."
+  when = "working on a project"
+  then = "Ensure that:
+    - A .cursorignore file is maintained to exclude irrelevant files.
+    - Files like logs, build artifacts, and dependencies are excluded, but config/.env and config/.env.encrypted are included."
+}
+
+rule "frequent-resync" {
+  description = "Resync and index code frequently to maintain up-to-date context."
+  when = "working on a project with frequent changes"
+  then = "Instruct Cursor to:
+    - Resync and index the codebase frequently to maintain up-to-date context.
+    - Notify the developer if resyncing is needed due to significant changes in the config directory."
+}
+
+rule "quick-context-addition" {
+  description = "Use Notepad for quick context addition without altering directory structure."
+  when = "needing to add temporary context"
+  then = "Use Notepad to:
+    - Quickly add prompts or references without creating new files or directories.
+    - Copy the content into Cursor for immediate use."
+}
+
+# Prompt Behavior
+rule "system-prompt-settings" {
+  description = "Define system prompt behavior for Cursor to align with development and AI agent guidelines."
+  when = "interacting with Cursor"
+  then = "Set the system prompt to:
+    - Keep answers concise and direct.
+    - Suggest alternative solutions when applicable, but avoid adding new modules unless necessary.
+    - Avoid unnecessary explanations.
+    - Prioritize technical details over generic advice.
+    - Maintain a global approach for initialization, logging, and error handling."
+}
+
+# Environment Variable Management
+rule "environment-variable-flow" {
+  description = "Enforce the environment variable flow from .env files to config files to application code."
+  when = "writing or modifying code"
+  then = "Ensure that:
+    - Environment variables are stored in config/.env.encrypted and config/.env.
+    - Configuration files (settings, thresholds, filters_config) under the config directory read only from environment files.
+    - Application code (via main.py) reads only from configuration files, never directly from environment files.
+    - Initialize all settings at startup in __init__.py files within the config directory.
+    - Never add default values to settings, thresholds, or other configuration files.
+    - Never assign constants directly in code, settings, or thresholds.
+    - All variable values must originate from environment files."
+}
+
+rule "development-constraints" {
+  description = "Adhere to development guidelines for minimal changes and global consistency."
+  when = "making code changes"
+  then = "Ensure that:
+    - Do not add new directories or files unless explicitly required.
+    - Do not add new modules unless absolutely necessary.
+    - Focus on making existing code functional for auto-trading, not improving it, unless critical.
+    - Maintain a global approach for initialization, logging, and error handling.
+    - Implement changes in the minimum number of files possible."
+}
+
+rule "venv-activation" {
+  description = "Always activate the virtual environment before running code."
+  when = "running or testing code"
+  then = "Execute the following command before running any code:
+    - `source ./.venv/bin/activate`"
+}
+
+# Change Management
+rule "propose-changes-before-editing" {
+  description = "Propose and explain changes before editing code."
+  when = "proposing code changes"
+  then = "Follow these steps:
+    - Propose and explain the changes in detail, ensuring they align with the environment variable flow, AI agent principles, and naming conventions.
+    - Wait for comments, corrections, or explicit confirmation from the user before implementing changes.
+    - Once confirmed, implement the changes while adhering to all other rules in this file."
+}

@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+
+{% block title %}TradingView Integration - SuperTradeX{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">TradingView Integration</h1>
+            <p class="text-gray-600 mt-2">Connect your TradingView account and manage alerts</p>
+        </div>
+        <button onclick="openNewAlertModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+            Create New Alert
+        </button>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- TradingView Chart -->
+        <div class="lg:col-span-2 bg-white rounded-lg shadow-lg p-6">
+            <div class="flex justify-between items-center mb-4">
+                <div class="flex space-x-4">
+                    <select id="timeframe" class="border rounded px-3 py-1">
+                        <option value="1">1m</option>
+                        <option value="5">5m</option>
+                        <option value="15">15m</option>
+                        <option value="30">30m</option>
+                        <option value="60">1h</option>
+                        <option value="240" selected>4h</option>
+                        <option value="D">1d</option>
+                    </select>
+                    <select id="symbol" class="border rounded px-3 py-1">
+                        {% for coin in coins %}
+                        <option value="{{ coin.coin }}{{ coin.pair }}">{{ coin.coin }}/{{ coin.pair }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="flex space-x-2">
+                    <button onclick="addIndicator('MA')" class="bg-gray-100 px-3 py-1 rounded hover:bg-gray-200">MA</button>
+                    <button onclick="addIndicator('RSI')" class="bg-gray-100 px-3 py-1 rounded hover:bg-gray-200">RSI</button>
+                    <button onclick="addIndicator('MACD')" class="bg-gray-100 px-3 py-1 rounded hover:bg-gray-200">MACD</button>
+                </div>
+            </div>
+            <div id="tradingview_chart" class="h-[600px]"></div>
+        </div>
+
+        <!-- Alerts Panel -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">Active Alerts</h2>
+            <div class="space-y-4">
+                {% for alert in alerts %}
+                <div class="border rounded-lg p-4 {% if alert.is_active %}bg-green-50{% else %}bg-gray-50{% endif %}">
+                    <div class="flex justify-between items-start mb-2">
+                        <h3 class="font-medium">{{ alert.name }}</h3>
+                        <div class="flex space-x-2">
+                            <button onclick="editAlert({{ alert.id }})" class="text-blue-600 hover:text-blue-800">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                </svg>
+                            </button>
+                            <button onclick="deleteAlert({{ alert.id }})" class="text-red-600 hover:text-red-800">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="text-sm text-gray-600">
+                        <p>Symbol: {{ alert.symbol }}</p>
+                        <p>Condition: {{ alert.condition }}</p>
+                        <p>Action: {{ alert.action }}</p>
+                        <p>Status: {% if alert.is_active %}Active{% else %}Inactive{% endif %}</p>
+                        <p>Last Triggered: {{ alert.last_triggered.strftime('%Y-%m-%d %H:%M:%S') if alert.last_triggered else 'Never' }}</p>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- New Alert Modal -->
+<div id="alertModal" class="fixed inset-0 bg-black bg-opacity-50 hidden">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div class="p-6">
+                <h3 class="text-xl font-semibold mb-4">Create New Alert</h3>
+                <form id="alertForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Alert Name</label>
+                        <input type="text" name="name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Symbol</label>
+                        <select name="symbol" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                            {% for coin in coins %}
+                            <option value="{{ coin.coin }}{{ coin.pair }}">{{ coin.coin }}/{{ coin.pair }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Condition</label>
+                        <input type="text" name="condition" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Action</label>
+                        <select name="action" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                            <option value="BUY">Buy</option>
+                            <option value="SELL">Sell</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Strategy</label>
+                        <select name="strategy_id" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                            {% for strategy in strategies %}
+                            <option value="{{ strategy.id }}">{{ strategy.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="flex justify-end space-x-3 mt-6">
+                        <button type="button" onclick="closeAlertModal()" class="px-4 py-2 border rounded-md hover:bg-gray-50">
+                            Cancel
+                        </button>
+                        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                            Create Alert
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+<script>
+let widget = null;
+
+function initTradingViewWidget() {
+    widget = new TradingView.widget({
+        "width": "100%",
+        "height": "100%",
+        "symbol": document.getElementById('symbol').value,
+        "interval": document.getElementById('timeframe').value,
+        "timezone": "exchange",
+        "theme": "light",
+        "style": "1",
+        "locale": "en",
+        "toolbar_bg": "#f1f3f6",
+        "enable_publishing": false,
+        "allow_symbol_change": true,
+        "container_id": "tradingview_chart"
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    initTradingViewWidget();
+    
+    document.getElementById('timeframe').addEventListener('change', function() {
+        widget.setSymbol(document.getElementById('symbol').value, this.value);
+    });
+    
+    document.getElementById('symbol').addEventListener('change', function() {
+        widget.setSymbol(this.value, document.getElementById('timeframe').value);
+    });
+    
+    document.getElementById('alertForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        const data = Object.fromEntries(formData.entries());
+        
+        fetch('/tradingview/alerts', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            }
+        });
+    });
+});
+
+function openNewAlertModal() {
+    document.getElementById('alertModal').classList.remove('hidden');
+}
+
+function closeAlertModal() {
+    document.getElementById('alertModal').classList.add('hidden');
+}
+
+function addIndicator(type) {
+    widget.chart().createStudy(type);
+}
+
+function editAlert(alertId) {
+    // Implement edit functionality
+}
+
+function deleteAlert(alertId) {
+    if (confirm('Are you sure you want to delete this alert?')) {
+        fetch(`/tradingview/alerts/${alertId}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            }
+        });
+    }
+}
+</script>
+{% endblock %} 

@@ -1,20 +1,63 @@
-aiohttp==3.8.5
+# Core dependencies
+wheel
+python-dotenv
+requests
+pandas-ta
+numpy
+pandas
+finta
+
+# Web framework
+flask
+flask-socketio
+python-engineio
+python-socketio
+eventlet
+websockets
+websocket-client
+flask-sqlalchemy
+flask-login
+gunicorn
+
+# Trading and exchanges
+ccxt
+schedule
+
+# Solana and blockchain
+solana
+solders
+base58
+borsh-construct
+pynacl
+cryptography
+anchorpy
+
+# Async and networking
+aiohttp
 asyncio
-solana==0.26.0
-python-dotenv==1.0.0
-cryptography==41.0.2
+httpx
+aiosqlite
+
+# Data analysis and visualization
+matplotlib
+scipy
+scikit-learn
+seaborn
+plotly
+dash
+
+# Database
+sqlalchemy
+
+# Utilities
+retrying
+pytest
+twikit
 statistics
-requests==2.31.0
-numpy==1.25.0
-pandas==2.1.2
-matplotlib==3.8.0
-scipy==1.11.3
-sklearn==1.3.0
-sqlalchemy==2.1.0
-nacl==1.5.0
-retrying==1.3.4
-logging
-datetime
-json
-queue
-threading
+backoff
+FastAPI 
+
+# Settings management
+pydantic
+pydantic-settings
+cachetools

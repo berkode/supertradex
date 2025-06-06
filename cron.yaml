@@ -1,0 +1,4 @@
+cron:
+- description: "loop active coins"
+  url: /loop-strategy
+  schedule: 1,16,31,46 * * * *

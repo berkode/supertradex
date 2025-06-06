@@ -1,0 +1,317 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - SuperTradeX{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex justify-between items-center">
+        <h1 class="text-2xl font-bold text-gray-900">Settings</h1>
+    </div>
+
+    <!-- Settings Tabs -->
+    <div class="bg-white shadow overflow-hidden sm:rounded-lg">
+        <div class="border-b border-gray-200">
+            <nav class="-mb-px flex space-x-8 px-6" aria-label="Tabs">
+                <button onclick="showTab('profile')" 
+                        class="tab-button border-indigo-500 text-indigo-600 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm"
+                        id="profile-tab">
+                    Profile
+                </button>
+                <button onclick="showTab('api')" 
+                        class="tab-button border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm"
+                        id="api-tab">
+                    API Keys
+                </button>
+                <button onclick="showTab('notifications')" 
+                        class="tab-button border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm"
+                        id="notifications-tab">
+                    Notifications
+                </button>
+                <button onclick="showTab('tradingview')" 
+                        class="tab-button border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm"
+                        id="tradingview-tab">
+                    TradingView
+                </button>
+            </nav>
+        </div>
+
+        <!-- Profile Tab -->
+        <div id="profile-content" class="tab-content p-6">
+            <form id="profile-form" class="space-y-6">
+                <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                    <div>
+                        <label for="first_name" class="block text-sm font-medium text-gray-700">First Name</label>
+                        <input type="text" name="first_name" id="first_name" value="{{ user.first_name }}"
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
+                        <input type="email" name="email" id="email" value="{{ user.email }}"
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    </div>
+                </div>
+                <div>
+                    <label for="current_password" class="block text-sm font-medium text-gray-700">Current Password</label>
+                    <input type="password" name="current_password" id="current_password"
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                </div>
+                <div>
+                    <label for="new_password" class="block text-sm font-medium text-gray-700">New Password</label>
+                    <input type="password" name="new_password" id="new_password"
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                </div>
+                <div>
+                    <label for="confirm_password" class="block text-sm font-medium text-gray-700">Confirm New Password</label>
+                    <input type="password" name="confirm_password" id="confirm_password"
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                </div>
+                <div class="flex justify-end">
+                    <button type="submit" 
+                            class="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium">
+                        Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- API Keys Tab -->
+        <div id="api-content" class="tab-content p-6 hidden">
+            <div class="space-y-6">
+                <div>
+                    <h3 class="text-lg font-medium text-gray-900">Exchange API Keys</h3>
+                    <p class="mt-1 text-sm text-gray-500">Manage your exchange API keys for automated trading.</p>
+                </div>
+                <form id="api-form" class="space-y-6">
+                    <div>
+                        <label for="exchange" class="block text-sm font-medium text-gray-700">Exchange</label>
+                        <select name="exchange" id="exchange"
+                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                            <option value="binance">Binance</option>
+                            <option value="kucoin">KuCoin</option>
+                            <option value="bybit">Bybit</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="api_key" class="block text-sm font-medium text-gray-700">API Key</label>
+                        <input type="text" name="api_key" id="api_key"
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="api_secret" class="block text-sm font-medium text-gray-700">API Secret</label>
+                        <input type="password" name="api_secret" id="api_secret"
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    </div>
+                    <div class="flex justify-end">
+                        <button type="submit" 
+                                class="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium">
+                            Add API Key
+                        </button>
+                    </div>
+                </form>
+                <div class="mt-6">
+                    <h4 class="text-sm font-medium text-gray-900">Saved API Keys</h4>
+                    <div class="mt-2 space-y-4">
+                        {% for key in user.api_keys %}
+                        <div class="flex items-center justify-between p-4 bg-gray-50 rounded-md">
+                            <div>
+                                <p class="text-sm font-medium text-gray-900">{{ key.exchange }}</p>
+                                <p class="text-sm text-gray-500">Added on {{ key.created_at.strftime('%Y-%m-%d') }}</p>
+                            </div>
+                            <button onclick="deleteApiKey('{{ key.id }}')"
+                                    class="text-red-600 hover:text-red-800 text-sm font-medium">
+                                Delete
+                            </button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notifications Tab -->
+        <div id="notifications-content" class="tab-content p-6 hidden">
+            <div class="space-y-6">
+                <div>
+                    <h3 class="text-lg font-medium text-gray-900">Notification Settings</h3>
+                    <p class="mt-1 text-sm text-gray-500">Configure how you want to receive notifications.</p>
+                </div>
+                <form id="notifications-form" class="space-y-6">
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h4 class="text-sm font-medium text-gray-900">Email Notifications</h4>
+                                <p class="text-sm text-gray-500">Receive notifications via email</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" name="email_notifications" class="sr-only peer" 
+                                       {% if user.email_notifications %}checked{% endif %}>
+                                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                            </label>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h4 class="text-sm font-medium text-gray-900">Trade Alerts</h4>
+                                <p class="text-sm text-gray-500">Get notified when trades are executed</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" name="trade_alerts" class="sr-only peer" 
+                                       {% if user.trade_alerts %}checked{% endif %}>
+                                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                            </label>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h4 class="text-sm font-medium text-gray-900">Strategy Alerts</h4>
+                                <p class="text-sm text-gray-500">Get notified when strategies start/stop</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" name="strategy_alerts" class="sr-only peer" 
+                                       {% if user.strategy_alerts %}checked{% endif %}>
+                                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="flex justify-end">
+                        <button type="submit" 
+                                class="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium">
+                            Save Preferences
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- TradingView Tab -->
+        <div id="tradingview-content" class="tab-content p-6 hidden">
+            <div class="space-y-6">
+                <div>
+                    <h3 class="text-lg font-medium text-gray-900">TradingView Integration</h3>
+                    <p class="mt-1 text-sm text-gray-500">Connect your TradingView account and manage alerts.</p>
+                </div>
+                <form id="tradingview-form" class="space-y-6">
+                    <div>
+                        <label for="tradingview_username" class="block text-sm font-medium text-gray-700">TradingView Username</label>
+                        <input type="text" name="tradingview_username" id="tradingview_username" value="{{ user.tradingview_username }}"
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="webhook_url" class="block text-sm font-medium text-gray-700">Webhook URL</label>
+                        <div class="mt-1 flex rounded-md shadow-sm">
+                            <input type="text" name="webhook_url" id="webhook_url" value="{{ user.webhook_url }}"
+                                   class="flex-1 block w-full rounded-none rounded-l-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                                   readonly>
+                            <button type="button" onclick="copyWebhookUrl()"
+                                    class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-r-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                                Copy
+                            </button>
+                        </div>
+                        <p class="mt-2 text-sm text-gray-500">Use this webhook URL in your TradingView alerts to send signals to SuperTradeX.</p>
+                    </div>
+                    <div class="flex justify-end">
+                        <button type="submit" 
+                                class="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium">
+                            Save Settings
+                        </button>
+                    </div>
+                </form>
+                <div class="mt-6">
+                    <h4 class="text-sm font-medium text-gray-900">TradingView Alerts</h4>
+                    <div class="mt-2 space-y-4">
+                        {% for alert in user.tradingview_alerts %}
+                        <div class="flex items-center justify-between p-4 bg-gray-50 rounded-md">
+                            <div>
+                                <p class="text-sm font-medium text-gray-900">{{ alert.name }}</p>
+                                <p class="text-sm text-gray-500">{{ alert.symbol }} - {{ alert.condition }}</p>
+                            </div>
+                            <div class="flex items-center space-x-4">
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                                           {% if alert.is_active %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
+                                    {{ "Active" if alert.is_active else "Inactive" }}
+                                </span>
+                                <button onclick="deleteAlert('{{ alert.id }}')"
+                                        class="text-red-600 hover:text-red-800 text-sm font-medium">
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function showTab(tabName) {
+    // Hide all tab contents
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.add('hidden');
+    });
+    
+    // Show selected tab content
+    document.getElementById(`${tabName}-content`).classList.remove('hidden');
+    
+    // Update tab button styles
+    document.querySelectorAll('.tab-button').forEach(button => {
+        button.classList.remove('border-indigo-500', 'text-indigo-600');
+        button.classList.add('border-transparent', 'text-gray-500');
+    });
+    
+    document.getElementById(`${tabName}-tab`).classList.remove('border-transparent', 'text-gray-500');
+    document.getElementById(`${tabName}-tab`).classList.add('border-indigo-500', 'text-indigo-600');
+}
+
+function copyWebhookUrl() {
+    const webhookUrl = document.getElementById('webhook_url');
+    webhookUrl.select();
+    document.execCommand('copy');
+    
+    // Show feedback
+    const button = event.target;
+    const originalText = button.textContent;
+    button.textContent = 'Copied!';
+    setTimeout(() => {
+        button.textContent = originalText;
+    }, 2000);
+}
+
+// Form submission handlers
+document.getElementById('profile-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    // Implement profile update logic
+});
+
+document.getElementById('api-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    // Implement API key addition logic
+});
+
+document.getElementById('notifications-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    // Implement notification settings update logic
+});
+
+document.getElementById('tradingview-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    // Implement TradingView settings update logic
+});
+
+async function deleteApiKey(keyId) {
+    if (!confirm('Are you sure you want to delete this API key?')) {
+        return;
+    }
+    // Implement API key deletion logic
+}
+
+async function deleteAlert(alertId) {
+    if (!confirm('Are you sure you want to delete this alert?')) {
+        return;
+    }
+    // Implement alert deletion logic
+}
+</script>
+{% endblock %} 

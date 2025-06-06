@@ -1,0 +1,812 @@
+
+import os
+import time
+import logging
+from typing import List, Set
+import requests
+import pandas as pd
+from random import randint, random
+from dotenv import load_dotenv
+from datetime import datetime
+from utils import get_logger
+from filters.twitter_check import TwitterCheck
+from utils.exception_handler import ExceptionHandler
+from config.settings import Settings
+from config.thresholds import Thresholds
+from config.filters_config import FiltersConfig
+from filters.whitelist import Whitelist
+import csv
+import asyncio
+import importlib
+import json
+# from synthron import SynthronTrader
+# from helius import HeliusClient
+# import tweepy
+
+# # Dynamically construct the path to the secrets.env file
+# script_dir = os.path.dirname(os.path.abspath(__file__))
+# env_path = os.path.join(script_dir, '.env')
+# Load environment variables from .env
+load_dotenv("config/.env")
+
+# Constants
+mint = ""
+chainId = os.getenv('CHAIN_ID')
+tokens = []
+max_retries = 2
+retry_delay = randint(5, 16) #seconds
+
+# Links and keys from secrets
+SOLSNIFFER_API_KEY = os.getenv('SOLSNIFFER_API_KEY')
+SOLSNIFFER_API_URL = os.getenv('SOLSNIFFER_API_URL')  # Solsniffer API endpoint
+MIN_SOLSNIFFER_SCORE = int(os.getenv('MIN_SOLSNIFFER_SCORE'))
+DEXSCREEN_TOKEN_QTY = int(os.getenv('DEXSCREEN_TOKEN_QTY'))
+DEXSCREEN_TOKEN_TOP_QTY = int(os.getenv('DEXSCREEN_TOKEN_TOP_QTY'))
+# TWEETSCOUT_API_KEY = os.getenv('TWEETSCOUT_API_KEY')
+TWEETSCOUT_URL = os.getenv('TWEETSCOUT_URL')  # Tweetscout API https://app.tweetscout.io/search?q=https://x.com/pumpkindotfun
+SOLANATRACKER_API_KEY = os.getenv('SOLANATRACKER_API_KEY')
+SOLANATRACKER_URL = os.getenv('SOLANATRACKER_URL')
+DEXSCREENER_API_BASE_URL = os.getenv('DEXSCREENER_API_BASE_URL')
+DEXSCREENER_LATEST = os.getenv('DEXSCREENER_LATEST')
+DEXSCREENER_DETAILS = os.getenv('DEXSCREENER_DETAILS')
+RUGCHECK_URL = os.getenv('RUGCHECK_URL')
+
+ALCHEMY_API_KEY = os.getenv('ALCHEMY_API_KEY')
+# HELIUS API key
+HELIUS_API_KEY = os.getenv('HELIUS_API_KEY')
+BUY_LIMIT_AMOUNT = float(os.getenv('BUY_LIMIT_AMOUNT', '0.01'))  # Amount in SOLANA to buy
+
+# # Initialize HELIUS client
+# helius_client = HeliusClient(api_key=HELIUS_API_KEY)
+
+# # Initialize SynthronTrader
+# trader = SynthronTrader()
+
+# Get paths from environment
+OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'outputs')
+WHITELIST_PATH = os.getenv('WHITELIST_PATH', f'{OUTPUT_DIR}/whitelist.csv')
+FILTERS_DIRECTORY = os.getenv('FILTERS_DIRECTORY', 'synthron/filters')
+
+# Ensure output directory exists
+os.makedirs(os.path.dirname(WHITELIST_PATH), exist_ok=True)
+
+class TokenScanner:
+    def __init__(self):
+        self.logger = get_logger("TokenScanner")
+        self.logger.setLevel(logging.INFO)
+        # Initialize other attributes
+        self.settings = Settings()
+        self.filters_config = FiltersConfig()
+        self.thresholds = Thresholds()
+        
+        # Initialize scan_results dictionary
+        self.scan_results = {
+            'last_scan_time': None,
+            'tokens': pd.DataFrame()
+        }
+        # asyncio.run(self.scan_tokens())  # Run the main function in the initializer
+
+    # Function to format volume and USD values
+    def format_value(self, value):
+        if value >= 1_000_000_000:
+            return f"{value / 1_000_000_000:.2f}B"
+        elif value >= 1_000_000:
+            return f"{value / 1_000_000:.2f}M"
+        elif value >= 1_000:
+            return f"{value / 1_000:.2f}K"
+        else:
+            return f"{value:.2f}"
+
+    # Function to convert formatted values back to numeric
+    def convert_to_numeric(self, value):
+        if 'B' in value:
+            return float(value[:-1]) * 1_000_000_000
+        elif 'M' in value:
+            return float(value[:-1]) * 1_000_000
+        elif 'K' in value:
+            return float(value[:-1]) * 1_000
+        else:
+            return float(value)
+
+    def dexscreener(self):
+        """Fetch trending tokens, get detailed information, categorize them, and return a DataFrame with token info and status."""
+        # Fetch trending tokens
+        url = DEXSCREENER_LATEST
+        headers = {}
+        
+        self.logger.info(f"Fetching trending tokens from: {url}")
+        
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, headers=headers)
+                response.raise_for_status()
+                trending_data = response.json()
+
+                # Ensure trending_data is a list of dictionaries
+                if isinstance(trending_data, list) and all(isinstance(token, dict) for token in trending_data):
+                    self.logger.info(f"Received {len(trending_data)} trending tokens.\n{trending_data}\n")
+                    break
+                else:
+                    self.logger.warning("Dexscreener unexpected data format received.")
+                    return pd.DataFrame()
+
+            except Exception as e:
+                self.logger.error(f"Dexscreener error fetching data: {e}")
+                if attempt < max_retries - 1:
+                    self.logger.error(f"Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                else:
+                    return pd.DataFrame()
+
+        # Filter tokens that do not have an icon or Twitter
+        filtered_tokens = [token for token in trending_data if token.get('icon') and any(link.get('type') == 'twitter' for link in token.get('links', []))]
+        # Extract token addresses
+        token_mints = [token['tokenAddress'] for token in filtered_tokens[:DEXSCREEN_TOKEN_QTY]]  # Take the first Quantity of tokens
+      
+        # Create a comma-separated string of token addresses
+        token_mints_str = ','.join(token_mints)
+        url = f"{DEXSCREENER_DETAILS}/{token_mints_str}"
+        # Print trending data for debugging
+        self.logger.info(f"Fetching detailed data from: {url}")
+            
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, headers=headers)
+                response.raise_for_status()
+                detailed_data_response = response.json()
+                current_time = int(time.time()) 
+                
+                # Print the detailed data for debugging
+                self.logger.info(f"Dexscreener received detailed data:\n{detailed_data_response}\n")
+                
+                # Ensure detailed_data is a list and contains the expected fields
+                if isinstance(detailed_data_response, list) and len(detailed_data_response) > 0:
+                    detailed_data = []
+                    for pair_data in detailed_data_response:
+                        detailed_info = {
+                            'mint': pair_data['baseToken']['address'],
+                            'symbol': pair_data['baseToken']['symbol'],
+                            'chainId': pair_data['chainId'],
+                            'dexId': pair_data['dexId'],
+                            'quoteToken': pair_data['quoteToken']['address'],
+                            'twitter': next((link['url'] for link in pair_data.get('info', {}).get('socials', []) if link['type'] == 'twitter'), ''),
+                            'telegram': next((link['url'] for link in pair_data.get('info', {}).get('socials', []) if link['type'] == 'telegram'), ''),
+                            'discord': next((link['url'] for link in pair_data.get('info', {}).get('socials', []) if link['type'] == 'discord'), ''),
+                            'website': next((link['url'] for link in pair_data.get('info', {}).get('websites', []) if link['label'] == 'Website'), ''),
+                            'volume5m': pair_data.get('volume', {}).get('m5', 0),
+                            'volume1h': pair_data.get('volume', {}).get('h1', 0),
+                            'volume6h': pair_data.get('volume', {}).get('h6', 0),
+                            'volume24h': pair_data.get('volume', {}).get('h24', 0),
+                            'priceChange1h': pair_data.get('priceChange', {}).get('h1', 0),
+                            'priceChange6h': pair_data.get('priceChange', {}).get('h6', 0),
+                            'priceChange24h': pair_data.get('priceChange', {}).get('h24', 0),
+                            'liquidityUsd': pair_data.get('liquidity', {}).get('usd', 0),
+                            'price': pair_data.get('priceUsd', 0),
+                            'marketCap': pair_data.get('marketCap', 0),
+                            'fdv': pair_data.get('fdv', 0),
+                            'ageMinutes': (current_time - pair_data.get('pairCreatedAt', 0) / 1000) / 60,  # Convert milliseconds to seconds
+                            'buys5m': pair_data.get('txns', {}).get('m5', {}).get('buys', 0),
+                            'sells5m': pair_data.get('txns', {}).get('m5', {}).get('sells', 0),
+                            'txns5m': pair_data.get('txns', {}).get('m5', {}).get('buys', 0) + pair_data.get('txns', {}).get('m5', {}).get('sells', 0),
+                            'buys1h': pair_data.get('txns', {}).get('h1', {}).get('buys', 0),
+                            'sells1h': pair_data.get('txns', {}).get('h1', {}).get('sells', 0),
+                            'txns1h': pair_data.get('txns', {}).get('h1', {}).get('buys', 0) + pair_data.get('txns', {}).get('h1', {}).get('sells', 0),
+                            'buys6h': pair_data.get('txns', {}).get('h6', {}).get('buys', 0),
+                            'sells6h': pair_data.get('txns', {}).get('h6', {}).get('sells', 0),
+                            'txns6h': pair_data.get('txns', {}).get('h6', {}).get('buys', 0) + pair_data.get('txns', {}).get('h6', {}).get('sells', 0),
+                            'buys24h': pair_data.get('txns', {}).get('h24', {}).get('buys', 0),
+                            'sells24h': pair_data.get('txns', {}).get('h24', {}).get('sells', 0),
+                            'txns24h': pair_data.get('txns', {}).get('h24', {}).get('buys', 0) + pair_data.get('txns', {}).get('h24', {}).get('sells', 0),
+                            'dexBoosted': pair_data.get('boosts', {}).get('active', 0)
+                        }
+                        detailed_data.append(detailed_info)
+                    break
+                else:
+                    self.logger.warning("Dexscreener unexpected data format received.")
+                    break  # Exit the retry loop if the data format is unexpected
+            except Exception as e:
+                self.logger.error(f"Dexscreener error fetching detailed data: {e}")
+                if attempt < max_retries - 1:
+                    self.logger.error(f"Dexscrener retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                else:
+                    break  # Exit the retry loop if the maximum retries are reached
+
+        # Convert detailed data to pandas DataFrame
+        df_detailed_tokens = pd.DataFrame(detailed_data)
+        self.logger.info(f"Received detailed data:\n{df_detailed_tokens}\n")
+
+        bonding_curve = float(os.getenv('BONDING_CURVE'))  # Example value, replace with actual bonding curve calculation if needed
+
+        # Categorize tokens using a for loop
+        statuses = []
+        for index, row in df_detailed_tokens.iterrows():
+            age_minutes = row['ageMinutes']
+            market_cap = row['marketCap']
+            liquidity_usd = row['liquidityUsd']
+            volume_5m = row['volume5m']
+            volume_1h = row['volume1h']
+            txns_5m = row['txns5m']
+            buys_5m = row['buys5m']
+            sells_5m = row['sells5m']
+            txns_1h = row['txns1h']
+            buys_1h = row['buys1h']
+            sells_1h = row['sells1h']            
+
+            # # Check if buys are greater than sells
+            # if buys_5m * 1.20 <= sells_5m:
+            #     statuses.append(None)
+            #     continue
+
+            # # Drop tokens based on initial criteria
+            # if market_cap < 0.1 * bonding_curve or liquidity_usd < 2500 or volume_5m < 250 or txns_5m < 7:
+            #     statuses.append(None)
+            #     continue
+
+            # Categorize tokens
+            if age_minutes < 3 and market_cap < 5000 and liquidity_usd > 500 and volume_5m > 250:
+                statuses.append('FRESH')
+            elif age_minutes < 5 and market_cap < 5000 and liquidity_usd > 750 and volume_5m > 250:
+                statuses.append('NEW')
+            elif age_minutes < 45 and market_cap < 0.4 * bonding_curve and liquidity_usd > 2500 and volume_5m > 1000:
+                statuses.append('NEW')
+            elif 5 < age_minutes < 120 and 0.4 * bonding_curve < market_cap < 0.9 * bonding_curve and liquidity_usd > 5000 and volume_5m > 1500:
+                statuses.append('FINAL')
+            elif age_minutes < 120 and market_cap >= bonding_curve and liquidity_usd > 5000 and volume_5m > 5000:
+                statuses.append('MIGRATED')
+            elif age_minutes > 120 and market_cap > 1.2 * bonding_curve and volume_5m > 7000:
+                statuses.append('OLD')
+            else:
+                statuses.append('NONE')
+
+        # Add the status column to the DataFrame
+        df_detailed_tokens['status'] = statuses
+        # # Drop rows where status is None
+        # df_tokens = df_tokens.dropna(subset=['status'])
+        # Sort the DataFrame based on volume, liquidity, and market cap
+        df_detailed_tokens = df_detailed_tokens.sort_values(
+            by=['txns5m', 'volume5m', 'liquidityUsd', 'marketCap'], 
+            ascending=False
+        )
+        # Take the top tokens
+        df_dexscreener_tokens = df_detailed_tokens.head(DEXSCREEN_TOKEN_TOP_QTY)
+        self.logger.info(f"Found {len(df_dexscreener_tokens)} tokens from DexScreener")
+        return df_dexscreener_tokens
+
+    def solanatracker(self):
+        """Fetch trending tokens from Solana Tracker and sort them in ascending order of highest Volume/MarketCap."""
+        trending_url = f"{SOLANATRACKER_URL}/tokens/trending"
+        token_url = f"{SOLANATRACKER_URL}/tokens/{mint}"
+        headers = {
+            "x-api-key": SOLANATRACKER_API_KEY
+        }
+        
+        print(f"SolanaTracker fetching token data from: {token_url}\n")
+        
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(token_url, headers=headers)
+                response.raise_for_status()
+                trending_data = response.json()
+
+                # Debug: Print the structure of trending_data
+                print(f"SolanaTracker trending Data:\n{trending_data}\n")
+
+                # Ensure trending_data is a list of dictionaries
+                if isinstance(trending_data, list) and all(isinstance(token, dict) for token in trending_data):
+                    # Filter tokens based on criteria
+                    filtered_tokens = []
+                    for token in trending_data:
+                        token_data = token['token']
+                        pools_data = token['pools'][0]
+                        txns_data = pools_data['txns']
+                        events_data = token['events']
+                        risk_data = token['risk']
+                        buysCount_data = token['buysCount']
+                        sellsCount_data = token['sellsCount']
+
+                        mint = token_data['mint']
+                        symbol = token_data['symbol']
+                        twitter = token_data.get('twitter', '')
+                        creator_site = token_data.get('website', '')
+                        has_file_metadata = token_data['hasFileMetaData']
+
+                        price = pools_data['price']['usd']
+                        market_cap_usd = pools_data['marketCap']['usd']
+                        liquidity_usd = pools_data['liquidity']['usd']
+                        txns_volume = txns_data['volume']
+                        buysCount = buysCount_data
+                        txns_buys = txns_data['buys']
+                        sellsCount = sellsCount_data
+                        txns_sells = txns_data['sells']
+                        lpburn = pools_data['lpBurn']
+
+                        price_change_1m = round(events_data.get('1m', {}).get('priceChangePercentage', 0) or 0, 2)
+                        price_change_5m = round(events_data.get('5m', {}).get('priceChangePercentage', 0) or 0, 2)
+                        price_change_1h = round(events_data.get('1h', {}).get('priceChangePercentage', 0) or 0, 2)
+                        price_change_24h = round(events_data.get('24h', {}).get('priceChangePercentage', 0) or 0, 2)
+
+                        rugged = risk_data['rugged']
+                        risk_score = risk_data['score']
+                        total_risk_score = sum(risk['score'] for risk in risk_data['risks'])
+                        jupiter_verified = risk_data.get('jupiterVerified', False)
+                        
+                        # Apply filters
+                        # if not twitter:
+                        #     continue
+                        # if not has_file_metadata:
+                        #     continue
+                        # if market_cap_usd < 7500:
+                        #     continue
+                        # if liquidity_usd < 7500:
+                        #     continue
+                        # if txns_volume < 5000:
+                        #     continue
+                        if lpburn < 90:
+                            continue
+                        if rugged:
+                            continue
+                        if risk_score > 5:
+                            continue
+
+                        filtered_tokens.append(token)
+
+                    # Sort tokens by Volume/MarketCap in ascending order
+                    sorted_tokens = sorted(filtered_tokens, key=lambda x: x['pools'][0]['liquidity']['quote'] / x['pools'][0]['marketCap']['quote'] if x['pools'] else float('inf'))
+                    return sorted_tokens
+                else:
+                    self.logger.warning("SolanaTracker unexpected data format received.")
+                    return []
+                
+            except Exception as e:
+                self.logger.error(f"SolanaTracker error fetching data: {e}")
+                if attempt < max_retries - 1:
+                    self.logger.error(f"Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                else:
+                    return []
+
+    def rugcheck(self, df):
+        """Apply RugCheck filter to tokens DataFrame using rugcheck.xyz API."""
+        if df.empty:
+            return pd.DataFrame()
+        
+        # Initialize rugcheck_score column
+        df['rugcheckScore'] = 100
+        initial_count = len(df)
+        
+        for index, row in df.iterrows():
+            mint = row['mint']
+            try:
+                # Call rugcheck.xyz API
+                rugcheck_url = f"{RUGCHECK_URL}/tokens/{mint}/report/summary"
+                response = requests.get(rugcheck_url)
+                response.raise_for_status()
+                data = response.json()
+                
+                # Extract rugcheck score from API response
+                rugcheck_score = int(data.get('score_normalised', 100))
+                df.at[index, 'rugcheckScore'] = rugcheck_score
+                self.logger.info(f"Rugcheck score {rugcheck_score} for {mint}")
+                
+            except Exception as e:
+                self.logger.warning(f"Error fetching rugcheck score for {mint}: {e}")
+                df.at[index, 'rugcheckScore'] = 100
+        
+        # Filter based on minimum score threshold from settings
+        max_score = float(os.getenv('MAX_RUGCHECK_SCORE'))
+        df = df[df['rugcheckScore'] < max_score]
+        
+        self.logger.info(f"Rugcheck filter: {initial_count} tokens → {len(df)} tokens passed.")
+        return df
+
+    def solsniffer(self, df):
+        """Fetches the Solsniffer score and additional factors for tokens."""
+        if df.empty:
+            return pd.DataFrame()
+
+        filtered_data = []
+        for index, row in df.iterrows():
+            mint = row['mint']
+            try:
+                solsniffer_url = f"{SOLSNIFFER_API_URL}/token/refresh/{mint}"
+                response = requests.get(solsniffer_url, headers={"X-API-KEY": SOLSNIFFER_API_KEY})
+                response.raise_for_status()
+                data = response.json()
+                contract_data = data['tokenData']
+                # print(f"Solsniffer data:\n{contract_data}\n")
+                
+                # Get the overall score and additional factors
+                solsniffer_score = int(contract_data.get("score"))
+                audit_risk = contract_data.get("auditRisk", {})
+                mint_disabled = bool(audit_risk.get("mintDisabled", False))
+                freeze_disabled = bool(audit_risk.get("freezeDisabled", False))
+                lp_burned = bool(audit_risk.get("lpBurned", False))
+                top10_holders = bool(audit_risk.get("top10Holders", False))
+                
+                # Get indicator data counts
+                indicator_data = contract_data.get("indicatorData", {})
+                high_count = indicator_data.get("high", {}).get("count", 0)
+                moderate_count = indicator_data.get("moderate", {}).get("count", 0)
+                low_count = indicator_data.get("low", {}).get("count", 0)
+                specific_count = indicator_data.get("specific", {}).get("count", 0)
+                
+                # Calculate holder statistics
+                owners_list = contract_data.get("ownersList", [])
+                total_holders = len(set(owner["address"] for owner in owners_list))
+                total_percentage = sum(float(owner["percentage"]) for owner in owners_list)
+                top_holder_percentage = float(owners_list[0]["percentage"]) if owners_list else 0
+                top10_percentage = sum(float(owner["percentage"]) for owner in owners_list[:10]) if len(owners_list) >= 10 else 0
+                
+                if solsniffer_score >= MIN_SOLSNIFFER_SCORE and mint_disabled and freeze_disabled:
+                    row_dict = row.to_dict()
+                    row_dict.update({
+                        'solsnifferScore': solsniffer_score,
+                        'mintDisabled': mint_disabled,
+                        'freezeDisabled': freeze_disabled,
+                        'lpBurned': lp_burned,
+                        'top10Holders': top10_holders,
+                        'top10Holders%': round(top10_percentage, 2),
+                        'topHolder%': round(top_holder_percentage, 2),
+                        'totalHolders': total_holders,
+                        'totalHolders%': round(total_percentage, 2),
+                        'highRiskCount': high_count,
+                        'moderateRiskCount': moderate_count,
+                        'lowRiskCount': low_count,
+                        'specificRiskCount': specific_count
+                    })
+                    filtered_data.append(row_dict)
+                    self.logger.info(f"Solsniffer passed score {solsniffer_score} and mint/freeze disabled for {mint}.")
+                else:
+                    self.logger.warning(f"Solsniffer skipping score {solsniffer_score} < {MIN_SOLSNIFFER_SCORE} or mint/freeze not-disabled for {mint}.")
+            
+            except Exception as e:
+                self.logger.warning(f"Error processing {mint}: {e}")
+                continue
+            
+        self.logger.info(f"Solsniffer filter: {len(df)} tokens → {len(filtered_data)} tokens passed:\n{filtered_data}\n")
+        return pd.DataFrame(filtered_data) if filtered_data else pd.DataFrame()
+
+    # async def tweetscout(self, twitter):
+    #     """Fetches TweetScout data for a Twitter handle using Playwright."""
+    #     for attempt in range(max_retries):
+    #         try:
+    #             async with async_playwright() as p:
+    #                 browser = await p.chromium.launch(headless=False)  # Run in headful mode to better handle Cloudflare
+    #                 context = await browser.new_context()
+    #                 page = await context.new_page()
+    #                 await page.goto(f"{TWEETSCOUT_URL}{twitter}")
+
+    #                 # Wait for Cloudflare challenge to complete
+    #                 await page.wait_for_load_state('networkidle')
+
+    #                 # Check for CAPTCHA and prompt user to solve it
+    #                 if await page.query_selector("iframe[src*='captcha']"):
+    #                     print("CAPTCHA detected. Please solve it manually.")
+    #                     await page.wait_for_selector("p.Counter_text_big__Xkphn", timeout=120000)  # Wait for user to solve CAPTCHA
+
+    #                 # Increase the timeout for waiting for the selector
+    #                 await page.wait_for_selector("p.Counter_text_big__Xkphn", timeout=60000)  # Increased timeout to 60 seconds
+
+    #                 # Extract overall score using BeautifulSoup
+    #                 html_content = await page.content()
+    #                 soup_obj = soup(html_content, "html.parser")
+    #                 try:
+    #                     score_element = soup_obj.find("p", class_="Counter_text_big__Xkphn")
+    #                     if score_element:
+    #                         score = int(score_element.text.strip())
+    #                     else:
+    #                         print("Could not find overall score on Tweetscout.")
+    #                         return None, None
+    #                 except (AttributeError, ValueError):
+    #                     print("Error extracting overall score.")
+    #                     return None, None
+
+    #                 # Extract total followers by summing up the three numbers
+    #                 try:
+    #                     follower_elements = soup_obj.find_all("p", class_="ValueDelta_text__RZa6u")
+    #                     followers = sum(int(element.text.strip()) for element in follower_elements)
+    #                 except (AttributeError, ValueError):
+    #                     print("Error extracting total followers.")
+    #                     return None, None
+
+    #                 await browser.close()  # Close the browser
+
+    #                 return score, followers
+
+    #         except Exception as e:
+    #             print(f"Error fetching data from TweetScout: {e}")
+    #             if attempt < max_retries - 1:
+    #                 print(f"Retrying in {retry_delay} seconds...")
+    #                 await asyncio.sleep(retry_delay)
+    #             else:
+    #                 return None, None
+
+    # async def trade_tokens(self, df_final_tokens):
+        # for index, row in df_final_tokens.iterrows():
+        #     mint = row['mint']
+        #     twitter = row['twitter']
+        #     status = row['status']
+            
+        #     # Fetch trading data using HELIUS API
+        #     trading_data = await helius_client.get_trading_data(mint)
+        #     buy_txns = trading_data['buy_txns']
+        #     sell_txns = trading_data['sell_txns']
+        #     net_volume = trading_data['net_volume']
+        #     rsi = trading_data['rsi']
+            
+        #     # Buy conditions
+        #     if buy_txns > sell_txns and net_volume > 0 and rsi < 50:
+        #         print(f"Buying {mint} with {BUY_LIMIT_AMOUNT} SOLANA")
+        #         await trader.buy(mint, BUY_LIMIT_AMOUNT)
+            
+        #     # Sell conditions
+        #     current_price = trading_data['current_price']
+        #     buy_price = row['buy_price']
+        #     price_change = (current_price - buy_price) / buy_price * 100
+            
+        #     if price_change <= -20:
+        #         print(f"Stop loss triggered for {mint}, selling 100%")
+        #         await trader.sell(mint, 100)
+        #     elif price_change >= 20 and price_change < 60:
+        #         print(f"Take profit 20% triggered for {mint}, selling 50%")
+        #         await trader.sell(mint, 50)
+        #     elif price_change >= 60:
+        #         print(f"Take profit 60% triggered for {mint}, selling remaining amount")
+        #         await trader.sell(mint, 100)
+        #     elif trading_data['dev_sell'] >= 15:
+        #         print(f"Developer sell 15% triggered for {mint}, selling 100%")
+        #         await trader.sell(mint, 100)
+
+    @ExceptionHandler.validate_and_handle(exception_type=Exception, context="TokenScanner.scan_tokens")
+    async def scan_tokens(self):
+        """
+        Main scanning function that applies filters in sequence:
+        1. Get tokens from DexScreener
+        2. Apply RugCheck filter
+        3. Apply SolSniffer filter
+        4. Apply Twitter verification
+        5. Update whitelist with qualified tokens
+        """
+        start_time = time.time()
+        self.logger.info("Starting token scan")
+
+        # Step 1: Get trending tokens from DexScreener
+        df_dexscreener_tokens = self.dexscreener()
+        if df_dexscreener_tokens.empty:
+            self.logger.info("No trending tokens found on DexScreener")
+            return pd.DataFrame()
+
+        total_tokens = len(df_dexscreener_tokens)
+        self.logger.info(f"Found {total_tokens} trending tokens on DexScreener")
+        self.logger.info(f"DexScreener Tokens DataFrame:\n{df_dexscreener_tokens}")
+
+        # Step 2: Apply RugCheck filter
+        df_rugchecked_tokens = self.rugcheck(df_dexscreener_tokens)
+        if df_rugchecked_tokens.empty:
+            self.logger.info("No tokens passed RugCheck")
+            return pd.DataFrame()
+        self.logger.info(f"RugCheck Tokens DataFrame:\n{df_rugchecked_tokens}")
+
+        # Step 3: Apply SolSniffer filter
+        df_solsniffer_tokens = self.solsniffer(df_rugchecked_tokens)
+        if df_solsniffer_tokens.empty:
+            self.logger.info("No tokens passed SolSniffer checks")
+            return pd.DataFrame()
+        self.logger.info(f"SolSniffer Tokens DataFrame:\n{df_solsniffer_tokens}")
+
+        # Step 4: Apply Twitter verification
+        twitter_checker = TwitterCheck()
+        df_final_tokens = await twitter_checker.filter_tokens_by_twitter(df_solsniffer_tokens)
+        if df_final_tokens.empty:
+            self.logger.info("No tokens passed Twitter verification")
+            return pd.DataFrame()
+        self.logger.info(f"Final Tokens DataFrame:\n{df_final_tokens}")
+
+        # Step 5: Save to whitelist.csv directly
+        try:
+            os.makedirs(os.path.dirname(WHITELIST_PATH), exist_ok=True)
+            df_final_tokens.to_csv(WHITELIST_PATH, index=False)
+            self.logger.info(f"Saved {len(df_final_tokens)} tokens to whitelist.csv")
+        except Exception as e:
+            self.logger.error(f"Error saving to whitelist.csv: {e}")
+
+        # Update scan results
+        self.scan_results['last_scan_time'] = datetime.now()
+        self.scan_results['tokens'] = df_final_tokens
+
+        execution_time = time.time() - start_time
+        self.logger.info(f"Scan completed in {execution_time:.2f}s. Found {len(df_final_tokens)} qualified tokens.")
+
+        return df_final_tokens
+
+    def scan_tokens_sync(self):
+        """Synchronous wrapper for scan_tokens"""
+        try:
+            return asyncio.run(self.scan_tokens())
+        except Exception as e:
+            self.logger.error(f"Error in scan_tokens_sync: {e}")
+            return pd.DataFrame()
+
+    def save_to_whitelist(self, filtered_tokens: List[dict]):
+        """
+        Saves complete token scanner results to whitelist.csv
+        
+        :param filtered_tokens: List of token data dictionaries that passed all filters
+        """
+        try:
+            os.makedirs(os.path.dirname(WHITELIST_PATH), exist_ok=True)
+            
+            # Write all token data to CSV
+            with open(WHITELIST_PATH, 'w', newline='') as f:
+                if not filtered_tokens:
+                    # If no tokens passed the filter, create empty file with headers
+                    writer = csv.writer(f)
+                    writer.writerow(['mint'])
+                    return
+                
+                # Write complete token data
+                writer = csv.DictWriter(f, fieldnames=filtered_tokens[0].keys())
+                writer.writeheader()
+                writer.writerows(filtered_tokens)
+                
+            self.logger.info(f"Saved {len(filtered_tokens)} tokens to whitelist")
+        except Exception as e:
+            self.logger.error(f"Error saving to whitelist: {e}")
+
+    def get_filtered_tokens(self) -> List[dict]:
+        """
+        Returns the list of tokens that passed all filters.
+        """
+        try:
+            df_filtered_tokens = asyncio.run(self.scan_tokens())
+            
+            if isinstance(df_filtered_tokens, pd.DataFrame):
+                if df_filtered_tokens.empty:
+                    self.logger.info("No tokens passed the filters")
+                    return []
+                
+                filtered_tokens = df_filtered_tokens.to_dict('records')
+                self.logger.info(f"Retrieved {len(filtered_tokens)} filtered tokens")
+                return filtered_tokens
+            
+        except RuntimeError as e:
+            if "cannot be called from a running event loop" in str(e):
+                # If we're already in an event loop, use it
+                loop = asyncio.get_running_loop()
+                df_filtered_tokens = loop.run_until_complete(self.scan_tokens())
+                
+                if isinstance(df_filtered_tokens, pd.DataFrame) and not df_filtered_tokens.empty:
+                    filtered_tokens = df_filtered_tokens.to_dict('records')
+                    self.logger.info(f"Retrieved {len(filtered_tokens)} filtered tokens")
+                    return filtered_tokens
+                
+        except Exception as e:
+            self.logger.error(f"Error getting filtered tokens: {e}")
+            return []
+
+    def _apply_additional_filters(self, df):
+        """
+        Apply all filter modules in the filters directory.
+        
+        Args:
+            df: DataFrame of tokens
+            
+        Returns:
+            Updated DataFrame with filter results
+        """
+        if not os.path.exists(FILTERS_DIRECTORY):
+            logging.warning(f"Filters directory not found: {FILTERS_DIRECTORY}")
+            return df
+            
+        # Get all filter modules
+        filter_modules = [f for f in os.listdir(FILTERS_DIRECTORY) 
+                         if f.endswith('.py') and not f.startswith('__')]
+        
+        if not filter_modules:
+            logging.info("No filter modules found")
+            return df
+            
+        logging.info(f"Applying {len(filter_modules)} additional filters")
+        
+        # Apply each filter
+        for filter_file in filter_modules:
+            module_name = filter_file[:-3]  # Remove .py extension
+            filter_col = f"filter_{module_name}"
+            
+            try:
+                # Import the filter module
+                filter_module = importlib.import_module(f"filters.{module_name}")
+                
+                # Apply filter to each token
+                for idx, row in df.iterrows():
+                    try:
+                        token_address = row['address']
+                        # Apply the filter
+                        result = filter_module.apply_filter(token_address, row.to_dict())
+                        # Store result in DataFrame
+                        df.at[idx, filter_col] = result
+                    except Exception as e:
+                        logging.error(f"Error applying filter {module_name} to token {row.get('address', 'unknown')}: {e}")
+                        df.at[idx, filter_col] = False
+                
+                logging.info(f"Applied filter: {module_name}")
+            except Exception as e:
+                logging.error(f"Error loading filter module {module_name}: {e}")
+        
+        return df
+    
+    def _save_tokens_to_db(self, df):
+        """
+        Save tokens to database.
+        Uses TokenDatabase to manage connections.
+        
+        Args:
+            df: DataFrame of tokens
+        """
+        try:
+            # Use TokenDatabase instead of DatabaseConnector
+            from data.token_database import TokenDatabase
+            
+            db = TokenDatabase()
+            # Let TokenDatabase handle the database connection and storage
+            success = db.store_scanner_results(df)
+            
+            if success:
+                self.logger.info(f"Saved {len(df)} tokens to database")
+            else:
+                self.logger.error("Failed to save tokens to database")
+            
+        except Exception as e:
+            self.logger.error(f"Error saving tokens to database: {e}")
+    
+    def _save_tokens_to_csv(self, df):
+        """
+        Save tokens to CSV file.
+        
+        Args:
+            df: DataFrame of tokens
+        """
+        try:
+            # Ensure output directory exists
+            os.makedirs(os.path.dirname(WHITELIST_PATH), exist_ok=True)
+            
+            # Check if file exists to preserve existing data
+            if os.path.exists(WHITELIST_PATH):
+                try:
+                    # Load existing CSV
+                    existing_df = pd.read_csv(WHITELIST_PATH)
+                    
+                    # Get new tokens not in existing CSV
+                    existing_addresses = set(existing_df['address'])
+                    new_tokens = df[~df['address'].isin(existing_addresses)]
+                    
+                    # Update existing tokens with new data
+                    for idx, row in df.iterrows():
+                        address = row['address']
+                        if address in existing_addresses:
+                            # Update row in existing DataFrame
+                            existing_idx = existing_df[existing_df['address'] == address].index
+                            for col in df.columns:
+                                if col in existing_df.columns:
+                                    existing_df.loc[existing_idx, col] = row[col]
+                            
+                            # Add any new columns from new DataFrame
+                            for col in df.columns:
+                                if col not in existing_df.columns:
+                                    existing_df[col] = None
+                                    existing_df.loc[existing_idx, col] = row[col]
+                    
+                    # Concatenate existing and new tokens
+                    combined_df = pd.concat([existing_df, new_tokens], ignore_index=True)
+                    combined_df.to_csv(WHITELIST_PATH, index=False)
+                    logging.info(f"Updated whitelist with {len(new_tokens)} new tokens at {WHITELIST_PATH}")
+                except Exception as e:
+                    logging.error(f"Error updating existing whitelist, overwriting: {e}")
+                    df.to_csv(WHITELIST_PATH, index=False)
+            else:
+                # Save new CSV
+                df.to_csv(WHITELIST_PATH, index=False)
+                logging.info(f"Created new whitelist with {len(df)} tokens at {WHITELIST_PATH}")
+        except Exception as e:
+            logging.error(f"Error saving tokens to CSV: {e}")

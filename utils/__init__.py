@@ -12,6 +12,8 @@ Modules Included:
   and dictionary manipulation.
 - Exception Handler: Centralized exception handling with support for retries, fallbacks, 
   and detailed error logging.
+- Encryption: Utilities for encrypting sensitive environment variables.
+- ColoredFormatter: Utility for adding color to log messages.
 
 Each utility module is built to adhere to production-level standards for security, performance, 
 and ease of integration.
@@ -33,8 +35,19 @@ from .helpers import (
     retry_request,
     flatten_nested_dict,
     is_valid_email,
+    get_git_commit_hash,
 )
 from .exception_handler import ExceptionHandler
+from .encryption import (
+    generate_key,
+    generate_master_key,
+    store_encryption_password,
+    get_encryption_password,
+    encrypt_env_file,
+    decrypt_env_file,
+    test_encryption,
+)
+from .colored_formatter import ColoredFormatter
 
 # Expose specific utilities for external use
 __all__ = [
@@ -53,8 +66,19 @@ __all__ = [
     "retry_request",
     "flatten_nested_dict",
     "is_valid_email",
+    "get_git_commit_hash",
     # Exception Handling
     "ExceptionHandler",
+    # Encryption
+    "generate_key",
+    "generate_master_key",
+    "store_encryption_password",
+    "get_encryption_password",
+    "encrypt_env_file",
+    "decrypt_env_file",
+    "test_encryption",
+    # Formatting
+    "ColoredFormatter",
 ]
 
 # Initialize package-wide logging for utility initialization

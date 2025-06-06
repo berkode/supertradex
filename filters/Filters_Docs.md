@@ -135,6 +135,9 @@ Manages a list of safe tokens for immediate trading.
 - **`__init__(initial_tokens: List[str], whitelist_file: str)`**
   - Initializes the whitelist with optional preloaded tokens and file support.
 
+- **`scan_token(token: str) -> bool`**
+  - Uses TokenScanner to list and add tokens to the whitelist.
+
 - **`add_token(token: str) -> bool`**
   - Adds a token to the whitelist.
 
@@ -150,4 +153,18 @@ Manages a list of safe tokens for immediate trading.
 - **`clear_whitelist()`**
   - Clears all tokens from the whitelist.
 
+
+## **9. `token_scanner.py`**
+
+### **Class: TokenScanner**
+Creates a list of safe tokens for immediate trading.
+
+#### **Methods**
+
+## **10. `twitter_check.py`**
+
+### **Class: TwitterCheck**
+Checks token twitter page for followers and user credibility.
+
+#### **Methods**
 ---

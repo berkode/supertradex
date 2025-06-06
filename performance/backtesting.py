@@ -4,9 +4,12 @@ import requests
 import logging
 import os
 from dotenv import load_dotenv
+from config.settings import Settings
 
 # Load environment variables
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 class Backtesting:
     def __init__(self, strategy):
@@ -31,6 +34,11 @@ class Backtesting:
         self.strategy = strategy
         self.results = []
         self.data = None
+
+        self.settings = Settings()
+        self.trade_size = self.settings.TRADE_SIZE
+        self.slippage_tolerance = self.settings.SLIPPAGE_TOLERANCE
+        self.risk_per_trade = self.settings.RISK_PER_TRADE
 
     def load_data(self, source=None, live=False, symbol=None):
         """
@@ -121,6 +129,9 @@ class Backtesting:
         """
         logging.info("Starting backtesting...")
         try:
+            if self.data is None:
+                raise ValueError("No data loaded. Call load_data() first.")
+                
             for _, row in self.data.iterrows():
                 signal = self.strategy(row)
                 if signal == 'buy':
@@ -140,6 +151,11 @@ class Backtesting:
         while True:
             try:
                 self.load_data(live=True, symbol=symbol)
+                if self.data is None or len(self.data) == 0:
+                    logging.warning("No data available, retrying...")
+                    time.sleep(1)
+                    continue
+                    
                 signal = self.strategy(self.data.iloc[-1])
                 if signal == 'buy':
                     self.simulate_trade('buy', self.data.iloc[-1]['price'], self.data.iloc[-1]['volume'])

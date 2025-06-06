@@ -1,12 +1,10 @@
-import os
 import logging
-from solana.publickey import PublicKey
-from solana.rpc.api import Client
-from dotenv import load_dotenv
-import requests
-
-# Load environment variables from .env
-load_dotenv()
+from solders.pubkey import Pubkey
+from solana.rpc.async_api import AsyncClient
+from solana.rpc.core import RPCException
+from typing import Dict, Optional, Any
+import httpx
+import asyncio
 
 # Configure logging
 logging.basicConfig(
@@ -17,147 +15,153 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+logger = logging.getLogger(__name__)
 
 
 class BalanceChecker:
-    def __init__(self):
-        self.rpc_endpoint = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
-        self.client = Client(self.rpc_endpoint)
-        self.wallet_address = os.getenv("WALLET_ADDRESS")
-        self.dex_screener_api = os.getenv("DEX_SCREENER_API_BASE_URL", "https://api.dexscreener.com")
-        self.sol_price_api = os.getenv("SOL_PRICE_API", "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd")
+    def __init__(self, 
+                 solana_client: AsyncClient, 
+                 wallet_pubkey: Pubkey, 
+                 http_client: httpx.AsyncClient,
+                 settings: Optional[Any] = None
+                 ):
+        if not solana_client or not wallet_pubkey or not http_client:
+             raise ValueError("solana_client, wallet_pubkey, and http_client are required.")
+             
+        self.solana_client = solana_client
+        self.wallet_pubkey = wallet_pubkey
+        self.http_client = http_client
+        self.settings = settings
 
-        if not self.wallet_address:
-            raise ValueError("WALLET_ADDRESS must be set in the .env file.")
+        # Use settings for API endpoints
+        self.dex_screener_api = getattr(settings, 'DEXSCREENER_API_URL')
+        self.sol_price_api = getattr(settings, 'SOL_PRICE_API')
 
-    def fetch_sol_price(self) -> float:
-        """
-        Fetch the current price of SOL in USD.
+        logger.info(f"BalanceChecker initialized for wallet: {self.wallet_pubkey}")
 
-        Returns:
-            float: Price of SOL in USD.
-        """
-        try:
-            response = requests.get(self.sol_price_api)
-            response.raise_for_status()
-            data = response.json()
-            sol_price = data["solana"]["usd"]
-            logging.info(f"Fetched SOL price: ${sol_price}")
-            return sol_price
-        except Exception as e:
-            logging.error(f"Error fetching SOL price: {e}")
-            return 0.0
+    async def fetch_sol_price(self) -> float:
+        retries = 3
+        delay = 1
+        for attempt in range(retries):
+            try:
+                response = await self.http_client.get(self.sol_price_api, timeout=10.0)
+                response.raise_for_status()
+                data = response.json()
+                sol_price = data["solana"]["usd"]
+                logger.info(f"Fetched SOL price: ${sol_price}")
+                return float(sol_price)
+            except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException) as e:
+                logger.warning(f"Attempt {attempt + 1}/{retries} failed fetching SOL price: {e}")
+                if attempt == retries - 1:
+                    logger.critical(f"Final attempt failed fetching SOL price after {retries} retries: {e}", exc_info=False)
+                    return 0.0
+                await asyncio.sleep(delay * (2 ** attempt))
+            except Exception as e:
+                logger.error(f"Unexpected error fetching SOL price: {e}", exc_info=True)
+                return 0.0
+        return 0.0
 
-    def fetch_token_metadata_from_dexscreener(self, token_address: str) -> dict:
-        """
-        Fetch token metadata (price, symbol, name) from DexScreener.
+    async def fetch_token_metadata_from_dexscreener(self, token_address: str) -> Dict[str, Any]:
+        default_meta = {"priceUsd": 0.0, "symbol": "UNKNOWN", "name": "Unknown Token"}
+        retries = 3
+        delay = 1
+        for attempt in range(retries):
+            try:
+                url = f"{self.dex_screener_api}/latest/dex/tokens/{token_address}"
+                logger.debug(f"Fetching DexScreener metadata from: {url} (Attempt {attempt+1})")
+                response = await self.http_client.get(url, timeout=15.0)
+                response.raise_for_status()
+                data = response.json()
 
-        Args:
-            token_address (str): Token mint address.
+                pairs = data.get("pairs", [])
+                if not pairs:
+                    logger.warning(f"No DexScreener pair data found for token: {token_address}")
+                    return default_meta
 
-        Returns:
-            dict: Token metadata including price, symbol, and name.
-        """
-        try:
-            url = f"{self.dex_screener_api}/latest/dex/pairs/solana/{token_address}"
-            response = requests.get(url)
-            response.raise_for_status()
-            data = response.json()
+                pair_data = pairs[0]
+                metadata = {
+                    "priceUsd": float(pair_data.get("priceUsd", 0.0)),
+                    "symbol": pair_data.get("baseToken", {}).get("symbol", "UNKNOWN"),
+                    "name": pair_data.get("baseToken", {}).get("name", "Unknown Token")
+                }
+                logger.info(f"Fetched metadata for token {token_address}: {metadata}")
+                return metadata
+            except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException) as e:
+                logger.warning(f"Attempt {attempt + 1}/{retries} failed fetching metadata for {token_address}: {e}")
+                if attempt == retries - 1:
+                    logger.critical(f"Final attempt failed fetching metadata for {token_address} after {retries} retries: {e}", exc_info=False)
+                    return default_meta
+                await asyncio.sleep(delay * (2 ** attempt))
+            except Exception as e:
+                logger.error(f"Unexpected error fetching metadata for token {token_address}: {e}", exc_info=True)
+                return default_meta
+        return default_meta
 
-            pairs = data.get("pairs", [])
-            if not pairs:
-                logging.warning(f"No price data found for token: {token_address}")
-                return {"priceUsd": 0.0, "symbol": "UNKNOWN", "name": "Unknown Token"}
+    async def get_sol_balance(self) -> float:
+        retries = 3
+        delay = 1
+        for attempt in range(retries):
+            try:
+                response = await self.solana_client.get_balance(self.wallet_pubkey)
+                if response.value is not None:
+                    balance_lamports = response.value
+                    balance_sol = balance_lamports / 1e9
+                    logger.debug(f"Fetched SOL balance for {self.wallet_pubkey}: {balance_sol} SOL")
+                    return balance_sol
+                logger.warning(f"Received null value for SOL balance request for {self.wallet_pubkey} (Attempt {attempt+1})")
+                return 0.0
+            except (RPCException, asyncio.TimeoutError) as e:
+                logger.warning(f"Attempt {attempt + 1}/{retries} failed fetching SOL balance for {self.wallet_pubkey}: {e}")
+                if attempt == retries - 1:
+                    logger.critical(f"Final attempt failed fetching SOL balance for {self.wallet_pubkey} after {retries} retries: {e}", exc_info=False)
+                    return 0.0
+                await asyncio.sleep(delay * (2 ** attempt))
+            except Exception as e:
+                logger.error(f"Unexpected error fetching SOL balance for {self.wallet_pubkey}: {e}", exc_info=True)
+                return 0.0
+        return 0.0
 
-            pair_data = pairs[0]
-            metadata = {
-                "priceUsd": float(pair_data.get("priceUsd", 0.0)),
-                "symbol": pair_data.get("baseToken", {}).get("symbol", "UNKNOWN"),
-                "name": pair_data.get("baseToken", {}).get("name", "Unknown Token")
-            }
-            logging.info(f"Fetched metadata for token {token_address}: {metadata}")
-            return metadata
-        except Exception as e:
-            logging.error(f"Error fetching metadata for token {token_address}: {e}")
-            return {"priceUsd": 0.0, "symbol": "UNKNOWN", "name": "Unknown Token"}
+    async def get_token_balance(self, token_mint_address: str) -> Optional[float]:
+        retries = 3
+        delay = 1
+        for attempt in range(retries):
+            try:
+                mint_pubkey = Pubkey.from_string(token_mint_address)
+                ata_response = await self.solana_client.get_token_accounts_by_owner(self.wallet_pubkey, mint=mint_pubkey)
+                if ata_response.value:
+                    account_data = ata_response.value[0].account.data
+                    if isinstance(account_data, bytes):
+                        balance_response = await self.solana_client.get_token_account_balance(ata_response.value[0].pubkey)
+                        if balance_response.value:
+                            return float(balance_response.value.ui_amount_string)
+                        logger.warning(f"get_token_account_balance returned null for {token_mint_address} (Attempt {attempt+1})")
+                        return None
+                    elif hasattr(account_data, 'parsed'):
+                        ui_amount = account_data.parsed.get('info', {}).get('tokenAmount', {}).get('uiAmountString')
+                        if ui_amount is not None:
+                            return float(ui_amount)
+                        else:
+                            logger.warning(f"Could not find uiAmountString in parsed data for {token_mint_address}")
+                            return None
+                    else:
+                        logger.warning(f"Unexpected account data format for {token_mint_address}")
+                        return None
+                else:
+                    logger.debug(f"No token account found for mint {token_mint_address} (Attempt {attempt+1})")
+                    return 0.0
+            except ValueError as e:
+                logger.error(f"Invalid token mint address format: {token_mint_address} - {e}")
+                return None
+            except (RPCException, asyncio.TimeoutError) as e:
+                logger.warning(f"Attempt {attempt + 1}/{retries} failed fetching balance for {token_mint_address}: {e}")
+                if attempt == retries - 1:
+                    logger.critical(f"Final attempt failed fetching balance for {token_mint_address} after {retries} retries: {e}", exc_info=False)
+                    return None
+                await asyncio.sleep(delay * (2 ** attempt))
+            except Exception as e:
+                logger.error(f"Unexpected error fetching balance for token {token_mint_address}: {e}", exc_info=True)
+                return None
+        return None
 
-    def get_sol_balance(self) -> float:
-        """
-        Get the SOL balance of the wallet.
-
-        Returns:
-            float: SOL balance of the wallet.
-        """
-        try:
-            balance = self.client.get_balance(PublicKey(self.wallet_address))
-            sol_balance = balance["result"]["value"] / 10**9  # Convert lamports to SOL
-            logging.info(f"Fetched SOL balance: {sol_balance} SOL")
-            return sol_balance
-        except Exception as e:
-            logging.error(f"Error fetching SOL balance: {e}")
-            return 0.0
-
-    def get_token_balances(self) -> dict:
-        """
-        Fetch token balances for the wallet.
-
-        Returns:
-            dict: A dictionary with token addresses as keys and balances as values in token units.
-        """
-        try:
-            response = self.client.get_token_accounts_by_owner(
-                PublicKey(self.wallet_address),
-                {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}
-            )
-            token_balances = {}
-            for account in response["result"]["value"]:
-                token_address = account["account"]["data"]["parsed"]["info"]["mint"]
-                balance = account["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
-                token_balances[token_address] = balance
-            logging.info(f"Fetched token balances: {token_balances}")
-            return token_balances
-        except Exception as e:
-            logging.error(f"Error fetching token balances: {e}")
-            return {}
-
-    def calculate_total_holdings(self) -> dict:
-        """
-        Calculate total holdings in SOL and USD, including individual token holdings.
-
-        Returns:
-            dict: A dictionary with total holdings in SOL, USD, and per-token holdings.
-        """
-        sol_balance = self.get_sol_balance()
-        sol_price = self.fetch_sol_price()
-        token_balances = self.get_token_balances()
-
-        total_holdings_in_sol = sol_balance
-        total_holdings_in_usd = sol_balance * sol_price
-        individual_holdings = {}
-
-        for token_address, token_balance in token_balances.items():
-            token_metadata = self.fetch_token_metadata_from_dexscreener(token_address)
-            token_price_usd = token_metadata.get("priceUsd", 0.0)
-            token_symbol = token_metadata.get("symbol", "UNKNOWN")
-            token_name = token_metadata.get("name", "Unknown Token")
-
-            token_value_in_usd = token_balance * token_price_usd
-            token_value_in_sol = token_value_in_usd / sol_price if sol_price > 0 else 0.0
-
-            individual_holdings[token_address] = {
-                "symbol": token_symbol,
-                "name": token_name,
-                "balance": token_balance,
-                "value_in_sol": token_value_in_sol,
-                "value_in_usd": token_value_in_usd
-            }
-
-            total_holdings_in_sol += token_value_in_sol
-            total_holdings_in_usd += token_value_in_usd
-
-        logging.info(f"Total holdings calculated: {total_holdings_in_usd} USD, {total_holdings_in_sol} SOL")
-        return {
-            "total_holdings_in_sol": total_holdings_in_sol,
-            "total_holdings_in_usd": total_holdings_in_usd,
-            "individual_holdings": individual_holdings
-        }
+    async def close(self):
+        logger.info("BalanceChecker closed (no owned resources).")

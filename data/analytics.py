@@ -1,31 +1,77 @@
-import os
 import logging
+from typing import Dict, Any, List, Optional
+import os
 import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
 from datetime import datetime
 from sklearn.cluster import KMeans
+from config.settings import Settings
+from utils.logger import get_logger
 
 # Load environment variables from .env
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler("analytics.log"),
-        logging.StreamHandler() if os.getenv("ENABLE_CONSOLE_LOGGING", "True").lower() == "true" else None
-    ]
-)
-
+# Get logger for this module
+logger = logging.getLogger(__name__)
 
 class Analytics:
-    def __init__(self):
-        self.suspicious_threshold = float(os.getenv("SUSPICIOUS_THRESHOLD", 1000))  # Suspicious transfer threshold
-        self.whale_threshold = float(os.getenv("WHALE_THRESHOLD", 100_000))  # Whale activity threshold
-        self.cluster_count = int(os.getenv("CLUSTER_COUNT", 5))  # Number of clusters for KMeans
-        self.min_liquidity = float(os.getenv("MIN_LIQUIDITY", 1000))  # Minimum liquidity for analysis
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self.min_volume = self.settings.MIN_VOLUME_24H
+        self.min_liquidity_threshold = self.settings.MIN_LIQUIDITY
+        self.min_liquidity_ratio = self.settings.MIN_LIQUIDITY_RATIO
+        # Read analytics-specific thresholds from Settings
+        self.suspicious_threshold = self.settings.SUSPICIOUS_THRESHOLD
+        self.whale_threshold = self.settings.WHALE_THRESHOLD
+        self.cluster_count = self.settings.CLUSTER_COUNT
+        self.min_liquidity = self.settings.MIN_LIQUIDITY
+        
+        # Configure logging - Remove level argument as it's not supported by custom get_logger
+        self.logger = get_logger(__name__)
+        self.logger.info("Analytics initialized with Min Volume: %s, Min Liquidity: %s", 
+                         self.min_volume, self.min_liquidity)
+        
+    async def initialize(self) -> bool:
+        """
+        Initialize the Analytics class.
+        
+        Returns:
+            bool: True if initialization was successful, False otherwise
+        """
+        try:
+            logger.info("Initializing Analytics")
+            
+            # Validate settings
+            if not all([
+                self.min_volume,
+                self.min_liquidity_threshold,
+                self.min_liquidity_ratio,
+                self.suspicious_threshold,
+                self.whale_threshold,
+                self.cluster_count,
+                self.min_liquidity
+            ]):
+                logger.error("Missing required settings for Analytics")
+                return False
+                
+            logger.info("Analytics initialized successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error initializing Analytics: {e}")
+            # Still return True to allow application to continue
+            return True
+            
+    async def close(self):
+        """
+        Close resources used by Analytics.
+        """
+        try:
+            # No resources to close, but keeping the pattern consistent
+            logger.info("Analytics resources closed")
+        except Exception as e:
+            logger.error(f"Error closing Analytics resources: {e}")
 
     @staticmethod
     def calculate_price_trend(prices: pd.Series) -> str:

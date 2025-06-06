@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backtest Analysis Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
+    <style>
+        .chart-container {
+            height: 400px;
+            margin-bottom: 20px;
+        }
+        .metrics-card {
+            margin-bottom: 20px;
+        }
+        .strategy-params {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3">
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5>Backtest Configuration</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="backtestForm">
+                            <div class="mb-3">
+                                <label for="tokenAddress" class="form-label">Token Address</label>
+                                <select class="form-select" id="tokenAddress" required>
+                                    <option value="">Select Token</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="strategy" class="form-label">Strategy</label>
+                                <select class="form-select" id="strategy" required>
+                                    <option value="ma_crossover">Moving Average Crossover</option>
+                                    <option value="rsi">RSI Strategy</option>
+                                    <option value="macd">MACD Strategy</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="timeframe" class="form-label">Timeframe</label>
+                                <select class="form-select" id="timeframe" required>
+                                    <option value="1h">1 Hour</option>
+                                    <option value="4h">4 Hours</option>
+                                    <option value="1d">1 Day</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="startDate" class="form-label">Start Date</label>
+                                <input type="date" class="form-control" id="startDate" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="endDate" class="form-label">End Date</label>
+                                <input type="date" class="form-control" id="endDate" required>
+                            </div>
+                            <div id="strategyParams" class="strategy-params">
+                                <!-- Strategy parameters will be loaded here -->
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">Run Backtest</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-md-9">
+                <div class="row mt-3">
+                    <!-- Performance Metrics -->
+                    <div class="col-md-4">
+                        <div class="card metrics-card">
+                            <div class="card-header">
+                                <h5>Performance Metrics</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="performanceMetrics">
+                                    <!-- Metrics will be loaded here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card metrics-card">
+                            <div class="card-header">
+                                <h5>Risk Metrics</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="riskMetrics">
+                                    <!-- Risk metrics will be loaded here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card metrics-card">
+                            <div class="card-header">
+                                <h5>Trade Statistics</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="tradeStats">
+                                    <!-- Trade statistics will be loaded here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts -->
+                <div class="row">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5>Price & Trades</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="priceChart" class="chart-container"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5>Drawdown Analysis</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="drawdownChart" class="chart-container"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5>Trade Distribution</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="tradeDistributionChart" class="chart-container"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trade History -->
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5>Trade History</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-striped" id="tradeHistory">
+                                        <thead>
+                                            <tr>
+                                                <th>Entry Time</th>
+                                                <th>Exit Time</th>
+                                                <th>Entry Price</th>
+                                                <th>Exit Price</th>
+                                                <th>Profit</th>
+                                                <th>Duration</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- Trade history will be loaded here -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            // Initialize Select2
+            $('#tokenAddress').select2({
+                placeholder: 'Select a token',
+                allowClear: true
+            });
+
+            // Load available tokens
+            $.get('/api/tokens', function(data) {
+                data.tokens.forEach(function(token) {
+                    $('#tokenAddress').append(new Option(token.symbol + ' (' + token.address + ')', token.address));
+                });
+            });
+
+            // Handle strategy selection
+            $('#strategy').change(function() {
+                loadStrategyParams($(this).val());
+            });
+
+            // Handle form submission
+            $('#backtestForm').submit(function(e) {
+                e.preventDefault();
+                runBacktest();
+            });
+
+            // Initialize socket connection
+            const socket = io();
+            
+            socket.on('backtest_update', function(data) {
+                updateBacktestResults(data);
+            });
+        });
+
+        function loadStrategyParams(strategy) {
+            $.get('/api/strategy_params/' + strategy, function(data) {
+                let html = '';
+                data.params.forEach(function(param) {
+                    html += `
+                        <div class="mb-3">
+                            <label for="${param.name}" class="form-label">${param.label}</label>
+                            <input type="${param.type}" class="form-control" id="${param.name}" 
+                                   value="${param.default}" required>
+                        </div>
+                    `;
+                });
+                $('#strategyParams').html(html);
+            });
+        }
+
+        function runBacktest() {
+            const formData = {
+                token_address: $('#tokenAddress').val(),
+                strategy: $('#strategy').val(),
+                timeframe: $('#timeframe').val(),
+                start_date: $('#startDate').val(),
+                end_date: $('#endDate').val(),
+                params: {}
+            };
+
+            // Collect strategy parameters
+            $('#strategyParams input').each(function() {
+                formData.params[$(this).attr('id')] = $(this).val();
+            });
+
+            $.post('/start_backtesting', formData, function(response) {
+                if (response.status === 'success') {
+                    // Backtest started successfully
+                    console.log('Backtest started');
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            });
+        }
+
+        function updateBacktestResults(data) {
+            // Update performance metrics
+            $('#performanceMetrics').html(`
+                <p>Total Return: ${data.metrics.total_return}%</p>
+                <p>Sharpe Ratio: ${data.metrics.sharpe_ratio}</p>
+                <p>Win Rate: ${data.metrics.win_rate}%</p>
+            `);
+
+            // Update risk metrics
+            $('#riskMetrics').html(`
+                <p>Max Drawdown: ${data.metrics.max_drawdown}%</p>
+                <p>Volatility: ${data.metrics.volatility}%</p>
+                <p>Sortino Ratio: ${data.metrics.sortino_ratio}</p>
+            `);
+
+            // Update trade statistics
+            $('#tradeStats').html(`
+                <p>Total Trades: ${data.metrics.total_trades}</p>
+                <p>Average Trade Duration: ${data.metrics.avg_trade_duration}</p>
+                <p>Profit Factor: ${data.metrics.profit_factor}</p>
+            `);
+
+            // Update charts
+            updateCharts(data.charts);
+            
+            // Update trade history
+            updateTradeHistory(data.trades);
+        }
+
+        function updateCharts(chartData) {
+            // Update price chart
+            Plotly.newPlot('priceChart', chartData.price_chart.data, chartData.price_chart.layout);
+
+            // Update drawdown chart
+            Plotly.newPlot('drawdownChart', chartData.drawdown_chart.data, chartData.drawdown_chart.layout);
+
+            // Update trade distribution chart
+            Plotly.newPlot('tradeDistributionChart', chartData.trade_distribution.data, chartData.trade_distribution.layout);
+        }
+
+        function updateTradeHistory(trades) {
+            const tbody = $('#tradeHistory tbody');
+            tbody.empty();
+            
+            trades.forEach(function(trade) {
+                tbody.append(`
+                    <tr>
+                        <td>${trade.entry_time}</td>
+                        <td>${trade.exit_time}</td>
+                        <td>${trade.entry_price}</td>
+                        <td>${trade.exit_price}</td>
+                        <td class="${trade.profit >= 0 ? 'text-success' : 'text-danger'}">${trade.profit}%</td>
+                        <td>${trade.duration}</td>
+                    </tr>
+                `);
+            });
+        }
+    </script>
+</body>
+</html> 

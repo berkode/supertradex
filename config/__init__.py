@@ -1,52 +1,119 @@
-import logging
-from dotenv import load_dotenv
 import os
+import logging
+from logging import getLogger
+from pathlib import Path
+import sys
 
-# Load environment variables from .env file
-load_dotenv()
+# Ensure the project root is in the Python path
+project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(project_root))
 
 # Configure package-level logging
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
-logger = logging.getLogger("Config")
+logging.basicConfig(level=logging.INFO)
+logger = getLogger('Config')
 
-# Import all configuration modules to make them accessible from the package
-from .raydium_api import RaydiumAPIConfig
-from .dexscreener_api import DexScreenerAPIConfig
+# Import needed for base setup, keep minimal
+from .logging_config import LoggingConfig 
+
+# Import main configuration classes to make them available via 'config' package
+from .settings import Settings, EncryptionSettings, BASE_DIR, outputs_dir
 from .solana_config import SolanaConfig
-from .logging_config import LoggingConfig
+from .dexscreener_api import DexScreenerAPI 
 from .thresholds import Thresholds
-from .settings import Settings
 from .filters_config import FiltersConfig
 
-# Initialize logging configuration
-LoggingConfig.setup_logging()
+# Import centralized configuration manager
+from .config_manager import (
+    ConfigurationManager, ConfigCategory, ConfigMetadata,
+    get_config_manager, initialize_config_manager,
+    get_websocket_config, get_solana_config, get_trading_config,
+    get_api_config, get_config
+)
+# Import other config classes as needed...
+# from .twitter_config import TwitterConfig
+# from .raydium_api import RaydiumAPI
 
-# Validate and log all configurations
-try:
-    logger.info("Initializing and validating configurations...")
+# Remove premature Settings instantiation
+# settings = Settings()
 
-    # Validate individual configurations
-    RaydiumAPIConfig.validate_config()
-    DexScreenerAPIConfig.validate_config()
-    SolanaConfig.validate_config()
-    Thresholds.validate_thresholds()
-    Settings.validate_settings()
-    FiltersConfig()  # Load and validate filter criteria on initialization
+logger = logging.getLogger(__name__)
+logger.info("Configuration package initialized (imports only).")
 
-    # Display configurations for debugging
-    logger.info("Configuration validation successful.")
-    RaydiumAPIConfig.display_config()
-    DexScreenerAPIConfig.display_config()
-    SolanaConfig.display_config()
-    Thresholds.display_thresholds()
-    Settings.display_settings()
+# Function to initialize all config objects (kept commented out - handled in main.py)
+# def initialize_config(settings: Settings) -> None:
+#     """Initializes all necessary configurations."""
+#     logger.info("Initializing and validating configurations...")
+#     try:
+#         # Create instances here if needed, passing settings
+#         SolanaConfig(settings)
+#         FiltersConfig(settings)
+#         TwitterConfig(settings)
+#         # ... and so on
+#         logger.info("Configurations initialized successfully.")
+#     except Exception as e:
+#         logger.error(f"Configuration initialization error: {e}")
+#         raise
 
-    # Display filter criteria
-    filters = FiltersConfig()
-    logger.info("Filter Criteria:")
-    for key, value in filters.criteria.items():
-        logger.info(f"{key}: {value}")
+# Removed initialization block to prevent import cycles
+# try:
+#     logger.info("Initializing and validating configurations...")
+# 
+#     # Create instances
+#     # solana_config = SolanaConfig()
+#     # filters_config = FiltersConfig()
+#     # thresholds = Thresholds()
+#     # dex_screener_config = DexScreenerAPI()
+#     # raydium_config = RaydiumAPI()
+#     # twitter_config = TwitterConfig(settings)
+# 
+#     # Validate configurations using instances
+#     # thresholds._validate_thresholds()
+#     # solana_config.validate_config()
+#     # filters_config.validate()
+#     # settings.validate_settings() # Removed call to non-existent method
+#     # twitter_config.validate_config()
+# 
+#     # Display configurations for debugging
+#     logger.info("Configuration validation successful.")
+#     # solana_config.display_config()
+#     # thresholds.display_thresholds()
+#     # settings.display_settings()
+#     # twitter_config.display_config()
+# 
+#     # Log filter criteria
+#     logger.info("Filter Criteria:")
+#     # if filters_config.criteria:
+#     #     for key, value in filters_config.criteria.items():
+#     #         logger.info(f"  {key}: {value}")
+#     # else:
+#     logger.warning("No filter criteria loaded")
+# 
+# except Exception as e:
+#     logger.error(f"Configuration initialization error: {e}")
+#     raise
 
-except Exception as e:
-    logger.error(f"Configuration initialization error: {e}")
-    raise
+# Export all necessary classes and instances
+__all__ = [
+    'Settings',
+    'EncryptionSettings',
+    'SolanaConfig',
+    'FiltersConfig',
+    'Thresholds',
+    'LoggingConfig',
+    'RaydiumAPI',
+    'DexScreenerAPI',
+    'TwitterConfig',
+    'BASE_DIR',
+    'outputs_dir',
+    # Configuration Manager exports
+    'ConfigurationManager',
+    'ConfigCategory',
+    'ConfigMetadata',
+    'get_config_manager',
+    'initialize_config_manager',
+    'get_websocket_config',
+    'get_solana_config',
+    'get_trading_config',
+    'get_api_config',
+    'get_config'
+]

@@ -1,19 +1,75 @@
 import time
 import datetime
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 import requests
 import json
+import os # Import os for path operations
+from pathlib import Path # Import Path
+import re
+import subprocess
+
+# Import Settings for type hinting only
+if TYPE_CHECKING:
+    from config.settings import Settings
 
 # Initialize logger
-logger = logging.getLogger("utils.helpers")
-logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
+# logger.setLevel(logging.INFO) # Removed hardcoded level
 
 # Formatter for logging
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
+
+# Function to ensure a directory exists
+def ensure_directory_exists(dir_path: Path):
+    """Creates a directory if it doesn't exist."""
+    try:
+        dir_path.mkdir(parents=True, exist_ok=True)
+        logger.debug(f"Ensured directory exists: {dir_path}")
+    except Exception as e:
+        logger.error(f"Failed to create directory {dir_path}: {e}")
+        raise # Re-raise the error as directory creation is often critical
+
+# Function to setup all necessary output directories based on settings
+def setup_output_dirs(settings: 'Settings'):
+    """Creates necessary output subdirectories based on paths in settings."""
+    logger.info("Setting up output directories...")
+    # List of setting attributes that contain file paths whose parent dirs need to exist
+    path_keys = [
+        'LOG_FILE', 
+        'WHITELIST_FILE',
+        'PRICE_HISTORY_PATH', # Assuming this is a directory path itself
+        'TRANSACTION_CSV_PATH',
+        # Add any other setting keys that represent output file/directory paths
+    ]
+    
+    created_dirs = set()
+
+    for key in path_keys:
+        try:
+            path_value = getattr(settings, key, None)
+            if path_value:
+                # Convert to Path object
+                p = Path(path_value)
+                # Get the parent directory
+                dir_to_create = p if p.suffix == '' else p.parent # If key represents a dir, use it directly
+                
+                # Avoid redundant checks/creation
+                if dir_to_create not in created_dirs:
+                    ensure_directory_exists(dir_to_create)
+                    created_dirs.add(dir_to_create)
+            else:
+                logger.warning(f"Setting key '{key}' not found or is None, skipping directory setup for it.")
+        except AttributeError:
+             logger.warning(f"Setting key '{key}' not found, skipping directory setup.") # Should not happen if keys are correct
+        except Exception as e:
+             logger.error(f"Error setting up directory for setting '{key}' (path: {path_value}): {e}")
+             # Decide if we should continue or raise
+
+    logger.info("Output directories setup complete.")
 
 
 def convert_timestamp_to_datetime(timestamp: int, timezone: Optional[str] = "UTC") -> datetime.datetime:
@@ -165,8 +221,35 @@ def is_valid_email(email: str) -> bool:
     Returns:
         bool: True if the email is valid, False otherwise.
     """
-    import re
-    pattern = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
+    pattern = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+$"
     result = bool(re.match(pattern, email))
     logger.debug(f"Email validation for '{email}': {result}")
     return result
+
+
+def get_git_commit_hash() -> Optional[str]:
+    """Gets the short git commit hash of the current HEAD.
+
+    Returns:
+        Optional[str]: The short commit hash, or None if git command fails.
+    """
+    try:
+        # Ensure command runs in the project root (adjust if necessary)
+        # Assumes the script is run from a location within the git repo
+        commit_hash = subprocess.check_output(
+            ['git', 'rev-parse', '--short', 'HEAD'], 
+            stderr=subprocess.STDOUT,
+            text=True,
+            cwd=os.path.dirname(os.path.abspath(__file__)) # Run git in the utils directory
+        ).strip()
+        logger.debug(f"Retrieved git commit hash: {commit_hash}")
+        return commit_hash
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Failed to get git commit hash. Is this a git repository? Error: {e.output.strip()}")
+        return None
+    except FileNotFoundError:
+        logger.warning("Failed to get git commit hash. 'git' command not found.")
+        return None
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while getting git commit hash: {e}")
+        return None

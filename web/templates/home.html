@@ -1,0 +1,107 @@
+{% extends "base.html" %} {% block title %}Home{% endblock %} {% block content%}
+
+<meta http-equiv="Refresh" content="60">
+
+<form method="POST">
+  <h3 align="center">Run Strategy</h3>
+  <div class="form-group">
+    <label for="coin">Coin name</label>
+    <input
+      type="text"
+      class="form-control"
+      id="coin"
+      name="coin"
+      placeholder="Enter coin name"
+    />
+  </div>
+  <div class="form-group">
+    <select
+      type="text"
+      class="multiselect"
+      id="pair"
+      name="pair"
+      placeholder="Enter pair name"
+    >
+      <option value="ETH">ETH</option>
+      <option value="USDT">USDT</option>
+      <option value="BTC" selected="selected">BTC</option>
+  </select>
+  <label for="pair">Pair</label>
+  </div>
+  <div class="form-group">
+    <select
+      type="text"
+      class="multiselect"
+      id="timeframe"
+      name="timeframe"
+      placeholder="Enter timeframe"
+    >
+    <option value="4h" selected="selected">4hrs</option>
+    <option value="30m">30min</option>
+      <option value="1h">1hr</option>
+      <option value="15m">15min</option>
+      <option value="1d">1day</option>
+  </select>
+  <label for="timeframe">Timeframe</label>
+  </div>
+  <div class="form-group">
+    <select
+      type="number"
+      class="multiselecet"
+      id="fiat_limit"
+      name="fiat_limit"
+      placeholder="Enter trading limit in USDT"
+    >
+    <option value="200" selected="selected">200 USDT</option>
+    <option value="300">300 USDT</option>
+    <option value="500">500 USDT</option>
+    <option value="750">750 USDT</option>
+    <option value="1000">1000 USDT</option>
+    <option value="2000">2000 USDT</option>
+    <option value="3000">3000 USDT</option>
+    <option value="5000">5000 USDT</option>
+  </select>
+  <label for="fiat_limit">Trade Limit</label>
+  </div>
+  <button type="submit" class="btn btn-primary">Submit</button>
+</form>
+
+<ul class="list-group list-group-flush"><li class="list-group-item"></li></ul>
+
+<ul class="list-group list-group-flush">
+  <li class="list-group-item">
+      <p><button type="button" class="btn btn-primary" onClick="loopStrategy()">Run the Loop</button></p>
+      {% for coin in user.coins %}
+        {% if coin.strategy_running == True %}
+        <p> {{ '%s/%s Price: %s, Uptrend: %s'% (coin.coin, coin.pair, coin.close_price, coin.uptrend_last) }}</p>
+        {% endif %}
+      {% endfor %}
+  </li>
+</ul>
+
+<ul class="list-group list-group-flush" id="coins">
+  {% for coin in user.coins %}
+  <li class="list-group-item">
+    {% if coin.strategy_running == True %}
+    <button type="button" class="btn btn-primary" onClick="stopStrategy({{ coin.id }})">Stop</button>
+    {{ '%s/%s Price: %s' % (coin.coin, coin.pair, coin.close_price) }}
+    <button type="button" class="close" onClick="deleteCoin({{ coin.id }})">
+    <span aria-hidden="true">&times;</span>
+    </button>
+    <p> {{ 'Checking %s timeframes for a trade limit of %s USDT' % (coin.timeframe, coin.fiat_limit) }} </p>
+    <p> {{ 'Uptrend: %s, Trend change: %s, Buy: %s, Sell: %s' % (coin.uptrend_last, coin.trend_change, coin.buy_position, coin.sell_position) }} </p>
+    {% else %}
+    <button type="button" class="btn btn-primary" onClick="runStrategy({{ coin.id }})">Run</button>
+    {{ '%s/%s' % (coin.coin, coin.pair) }}
+    <button type="button" class="close" onClick="deleteCoin({{ coin.id }})">
+    <span aria-hidden="true">&times;</span>
+    </button>
+    <p> {{ 'Run to check %s timeframes for a trade limit of %s USDT' % (coin.timeframe, coin.fiat_limit) }} </p>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+
+<ul class="list-group list-group-flush"><li class="list-group-item"></li></ul>
+
+{% endblock %}

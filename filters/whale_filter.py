@@ -1,104 +1,103 @@
-import logging
-from typing import List, Dict, Optional
+"""
+Whale filter module for analyzing token whale metrics.
+"""
 
+import logging
+from typing import Dict, Any, List, Optional
+from config.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 class WhaleFilter:
-    """
-    Identifies tokens with suspicious whale activity based on predefined thresholds.
-    """
-
-    def __init__(
-        self, 
-        whale_threshold: float, 
-        suspicious_threshold: int, 
-        logging_level: int = logging.INFO,
-        save_flagged_tokens: Optional[str] = None
-    ):
+    """Filter for analyzing token whale metrics."""
+    
+    def __init__(self, settings: Settings):
         """
-        Initializes the WhaleFilter.
+        Initialize the whale filter.
         
-        :param whale_threshold: Percentage of token holdings considered as whale activity (e.g., 1.0 for 1%).
-        :param suspicious_threshold: Minimum number of whale accounts for flagging as suspicious.
-        :param logging_level: Logging level for the logger.
-        :param save_flagged_tokens: Optional file path to save flagged tokens.
+        Args:
+            settings: Application settings
         """
-        self.whale_threshold = whale_threshold
-        self.suspicious_threshold = suspicious_threshold
-        self.save_flagged_tokens = save_flagged_tokens
-
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging_level)
-
-        self.logger.info(
-            "WhaleFilter initialized with whale threshold: %.2f%% and suspicious threshold: %d.",
-            self.whale_threshold * 100,
-            self.suspicious_threshold
-        )
-
-    def analyze_token(self, token: str, holder_data: Dict[str, float]) -> bool:
-        """
-        Analyzes whale activity for a given token.
+        self.settings = settings
+        logger.info("Whale filter initialized")
         
-        :param token: The token symbol or address to analyze.
-        :param holder_data: A dictionary of holder addresses and their percentage holdings.
-        :return: True if the token shows suspicious whale activity, False otherwise.
+    async def analyze_token(self, token_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        whale_accounts = [
-            address for address, percentage in holder_data.items() 
-            if percentage >= self.whale_threshold
-        ]
+        Analyzes a single token for whale metric requirements.
 
-        whale_count = len(whale_accounts)
-        self.logger.debug(
-            "Token '%s': Found %d whale accounts exceeding %.2f%% threshold.", 
-            token, whale_count, self.whale_threshold * 100
-        )
+        Args:
+            token_data: Dictionary containing token info (top_holder_percentage, whale_holdings).
 
-        if whale_count >= self.suspicious_threshold:
-            self.logger.warning(
-                "Token '%s' flagged for suspicious whale activity: %d accounts exceed %.2f%% holdings.",
-                token, whale_count, self.whale_threshold * 100
-            )
-            return True
-        return False
-
-    def filter_tokens(self, tokens_data: Dict[str, Dict[str, float]]) -> List[str]:
+        Returns:
+            Dict with analysis results: {'flagged': bool, 'reason': str, ...metrics}
         """
-        Filters a list of tokens based on whale activity.
-        
-        :param tokens_data: A dictionary where keys are token symbols or addresses, and values are
-                            dictionaries of holder data (address: percentage holdings).
-        :return: A list of tokens flagged for suspicious whale activity.
-        """
-        flagged_tokens = []
-        for token, holder_data in tokens_data.items():
-            if self.analyze_token(token, holder_data):
-                flagged_tokens.append(token)
-
-        self.logger.info(
-            "Whale filtering complete. %d tokens flagged for suspicious activity.", len(flagged_tokens)
-        )
-
-        if self.save_flagged_tokens:
-            self._save_flagged_tokens(flagged_tokens)
-
-        return flagged_tokens
-
-    def _save_flagged_tokens(self, flagged_tokens: List[str]):
-        """
-        Saves flagged tokens to a specified file.
-        
-        :param flagged_tokens: List of tokens flagged for suspicious whale activity.
-        """
+        analysis_result = {'flagged': False, 'reason': 'passed'}
         try:
-            with open(self.save_flagged_tokens, "w") as file:
-                for token in flagged_tokens:
-                    file.write(f"{token}\n")
-            self.logger.info(
-                "Flagged tokens saved to file: %s", self.save_flagged_tokens
-            )
+            mint = token_data.get('mint', 'UNKNOWN_MINT')
+            top_holder_percentage = token_data.get("top_holder_percentage", 0)
+            whale_holdings = token_data.get("whale_holdings", 0)
+            analysis_result['top_holder_percentage'] = top_holder_percentage
+            analysis_result['whale_holdings'] = whale_holdings
+
+            max_top_holder = self.settings.MAX_TOP_HOLDER_PERCENTAGE
+            max_whale = self.settings.MAX_WHALE_HOLDINGS
+
+            if top_holder_percentage > max_top_holder:
+                logger.debug(f"Token {mint} failed whale check: top holder % {top_holder_percentage} > {max_top_holder}")
+                analysis_result['flagged'] = True
+                analysis_result['reason'] = f'top_holder_percentage_too_high ({top_holder_percentage} > {max_top_holder})'
+                return analysis_result # Exit early
+
+            if whale_holdings > max_whale:
+                logger.debug(f"Token {mint} failed whale check: whale holdings {whale_holdings} > {max_whale}")
+                analysis_result['flagged'] = True
+                analysis_result['reason'] = f'whale_holdings_too_high ({whale_holdings} > {max_whale})'
+                return analysis_result # Exit early
+
+            logger.debug(f"Token {mint} passed whale check.")
+            return analysis_result
+
         except Exception as e:
-            self.logger.error(
-                "Failed to save flagged tokens to file: %s. Error: %s",
-                self.save_flagged_tokens, str(e)
-            )
+            mint = token_data.get('mint', 'UNKNOWN_MINT') # Ensure mint is available for error log
+            logger.error(f"Error analyzing whale metrics for token {mint}: {e}", exc_info=True)
+            analysis_result['flagged'] = True # Flag on error
+            analysis_result['reason'] = f'analysis_error: {e}'
+            return analysis_result
+            
+    async def filter_tokens(self, tokens: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Filter tokens based on whale metrics.
+        
+        Args:
+            tokens: List of tokens to filter
+            
+        Returns:
+            List of tokens that passed the whale filter
+        """
+        filtered_tokens = []
+        
+        for token in tokens:
+            try:
+                # Get whale metrics
+                mint = token.get('mint', 'UNKNOWN_MINT')
+                top_holder_percentage = token.get("top_holder_percentage", 0)
+                whale_holdings = token.get("whale_holdings", 0)
+                
+                # Check if whale metrics meet requirements
+                if top_holder_percentage > self.settings.MAX_TOP_HOLDER_PERCENTAGE:
+                    logger.info(f"Token {mint} failed whale filter: top holder percentage {top_holder_percentage} > {self.settings.MAX_TOP_HOLDER_PERCENTAGE}")
+                    continue
+                    
+                if whale_holdings > self.settings.MAX_WHALE_HOLDINGS:
+                    logger.info(f"Token {mint} failed whale filter: whale holdings {whale_holdings} > {self.settings.MAX_WHALE_HOLDINGS}")
+                    continue
+                    
+                filtered_tokens.append(token)
+                logger.info(f"Token {mint} passed whale filter with top holder percentage {top_holder_percentage} and whale holdings {whale_holdings}")
+                
+            except Exception as e:
+                mint = token.get('mint', 'UNKNOWN_MINT') # Ensure mint is available for error log
+                logger.error(f"Error filtering token {mint} with whale filter: {str(e)}")
+                continue
+                
+        return filtered_tokens

@@ -151,5 +151,34 @@ Ensures trades stay within predefined slippage tolerances.
 
 ---
 
+## **7. Missing Components**
+
+The following components are referenced in the code but not yet implemented:
+
+### **PositionManager**
+- **Purpose**: Manages token positions, tracking open/closed trades, cost basis, and PnL.
+- **Expected Dependencies**:
+  - `TokenDatabase` (for persistence)
+  - `PriceMonitor` (for real-time pricing)
+  - `Settings` (for configuration)
+- **Usage in Code**:
+  - Currently instantiated in `main.py` but missing implementation.
+  - Should integrate with `OrderManager` for trade execution.
+
+### **RiskManager**
+- **Purpose**: Enforces risk limits (e.g., max trade size, daily loss limits).
+- **Expected Dependencies**:
+  - `Thresholds` (for risk parameters)
+  - `PositionManager` (for exposure checks)
+  - `SolanaClient` (for on-chain data)
+- **Usage in Code**:
+  - Referenced in `main.py` and `wallet/trade_validator.py`.
+  - Tests exist in `tests/test_risk_manager.py` but no implementation.
+
+### **Implementation Notes**
+- These components should be implemented in the `execution` directory.
+- See `tests/test_risk_manager.py` for expected behavior.
+- Coordinate with `OrderManager` and `TradeValidator` for integration.
+
 ## **Conclusion**
 The Execution module integrates various components to ensure seamless trade execution, monitoring, and risk management. Each class and method is designed for high performance, modularity, and production-grade reliability.

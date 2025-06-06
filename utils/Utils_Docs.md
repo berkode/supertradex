@@ -126,21 +126,22 @@ The `validation` module provides utility functions for validating environment va
 ### Example Usage:
 
 ```python
-# Validate environment variables
-validate_env_variables(["DEXSCREENER_API_URL", "RAYDIUM_API_KEY"])
+from .validation import validate_email, validate_url, validate_trading_pair
+# from config import settings # Example import
 
-# Validate API key
-validate_api_key("my-api-key", "Raydium")
+# Assuming 'settings' is a loaded Settings object from your config module
+# Example: settings = Settings()
 
-# Validate trading pair
-is_valid = validate_trading_pair("SOL-USDC", "https://api.raydium.io")
-
-# Validate thresholds
-validate_thresholds("Minimum Liquidity", 1000, 500, 10000)
-
-# Validate liquidity for a trading pair
-is_sufficient = validate_liquidity(1000, "SOL-USDC", "https://api.raydium.io")
+email_valid = validate_email("test@example.com")
+url_valid = validate_url("http://example.com")
+# is_valid = validate_trading_pair("SOL-USDC", settings.RAYDIUM_API_URL) # Example for trading pair
 ```
+
+# Example for validate_trading_pair (ensure you have access to your settings object)
+# from config.settings import Settings 
+# settings = Settings() # This would typically be done once at application startup
+# is_valid = validate_trading_pair("SOL-USDC", settings.RAYDIUM_API_URL)
+# print(f'Is SOL-USDC a valid Raydium pair? {is_valid}')
 
 ---
 

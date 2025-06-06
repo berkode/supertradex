@@ -4,8 +4,8 @@ import traceback
 from typing import Callable, Optional, Type
 
 # Initialize logger
-logger = logging.getLogger("utils.exception_handler")
-logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
+# logger.setLevel(logging.INFO) # Removed hardcoded level
 
 # Formatter for logging
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")

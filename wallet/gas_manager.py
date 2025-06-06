@@ -1,20 +1,25 @@
 import os
 import statistics
-from dotenv import load_dotenv
 import requests
 import time
+from typing import TYPE_CHECKING
 
 # Load environment variables from .env
-load_dotenv()
+# load_dotenv()
+
+if TYPE_CHECKING:
+    from config.settings import Settings
+
 
 class GasManager:
-    def __init__(self):
-        # Configurable thresholds
-        self.default_gas_price = float(os.getenv("DEFAULT_GAS_PRICE", 0.00001))  # Default gas price in SOL
-        self.max_gas_price = float(os.getenv("MAX_GAS_PRICE", 0.0001))  # Maximum gas price allowed in SOL
-        self.min_gas_price = float(os.getenv("MIN_GAS_PRICE", 0.000005))  # Minimum gas price allowed in SOL
-        self.api_endpoint = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")  # RPC endpoint
-        self.network_poll_interval = int(os.getenv("NETWORK_POLL_INTERVAL", 10))  # Seconds between network checks
+    def __init__(self, settings: "Settings"):
+        self.settings = settings
+        # Configurable thresholds using Settings object
+        self.default_gas_price = self.settings.DEFAULT_GAS_FEE
+        self.max_gas_price = self.settings.MAX_GAS_FEE
+        self.min_gas_price = self.settings.MIN_GAS_FEE
+        self.api_endpoint = self.settings.HELIUS_RPC_URL
+        self.network_poll_interval = self.settings.NETWORK_POLL_INTERVAL
         self.gas_price_history = []  # Store historical gas prices
 
     def fetch_current_gas_price(self) -> float:

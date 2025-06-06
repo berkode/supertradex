@@ -24,9 +24,10 @@ class ScamFilter:
         ]
         self.logger.info("ScamFilter initialized with %d known patterns.", len(self.scam_patterns))
 
-    def analyze_contract(self, contract_data: Dict[str, any]) -> Dict[str, any]:
+    async def analyze_contract(self, contract_data: Dict[str, any]) -> Dict[str, any]:
         """
         Analyzes a single smart contract for scam patterns.
+        NOTE: Made async to be callable from async analyze_and_annotate without blocking.
 
         :param contract_data: A dictionary containing the contract data:
                               - 'address': Smart contract address
@@ -78,26 +79,47 @@ class ScamFilter:
             "detected_patterns": detected_patterns,
         }
 
-    def filter_contracts(self, contracts_data: List[Dict[str, any]]) -> List[Dict[str, any]]:
+    async def analyze_and_annotate(self, tokens: List[Dict[str, any]]) -> List[Dict[str, any]]:
         """
-        Filters a list of smart contracts for potential scams.
+        Analyzes a list of tokens for potential scams based on contract data and annotates them.
 
-        :param contracts_data: A list of dictionaries where each dictionary represents a contract.
-        :return: A list of flagged contracts with their analysis results.
+        Args:
+            tokens: A list of token dictionaries. Expects contract data under 'contract_data'.
+        
+        Returns:
+            The list of tokens, annotated with scam analysis results.
         """
-        if not contracts_data:
-            self.logger.warning("No contract data provided for filtering.")
+        if not tokens:
+            self.logger.warning("No token data provided for scam analysis.")
             return []
 
-        flagged_contracts = []
-        for contract_data in contracts_data:
-            analysis_result = self.analyze_contract(contract_data)
-            if analysis_result["flagged"]:
-                flagged_contracts.append(analysis_result)
+        annotated_tokens = []
+        analysis_key = "scam_analysis"
+        flagged_count = 0
+        self.logger.info(f"Applying ScamFilter analysis to {len(tokens)} tokens.")
+
+        for token_data in tokens:
+            mint = token_data.get('mint', 'Unknown')
+            # Assume contract data is available in the token dictionary
+            contract_data = token_data.get('contract_data') # Adjust key if necessary
+
+            if isinstance(contract_data, dict):
+                # Await the async analyze_contract call
+                analysis_result = await self.analyze_contract(contract_data) 
+                # Add the result under the analysis key
+                token_data[analysis_key] = analysis_result
+                if analysis_result.get("flagged", False):
+                    flagged_count += 1
+            else:
+                self.logger.warning(f"Missing or invalid 'contract_data' for token {mint}. Skipping scam analysis.")
+                token_data[analysis_key] = {"flagged": None, "status": "skipped_missing_data"}
+                
+            annotated_tokens.append(token_data)
 
         self.logger.info(
-            "Scam filtering complete. %d contracts flagged out of %d analyzed.",
-            len(flagged_contracts), len(contracts_data)
+            "Scam analysis complete. %d tokens flagged out of %d analyzed.",
+            flagged_count, len(annotated_tokens),
         )
 
-        return flagged_contracts
+        # No saving logic in the original filter
+        return annotated_tokens

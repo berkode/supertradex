@@ -5,9 +5,12 @@ import logging
 import json
 from datetime import datetime
 from dotenv import load_dotenv
+from config.settings import Settings
 
 # Load environment variables
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 class Reporting:
     def __init__(self, results):
@@ -30,6 +33,10 @@ class Reporting:
             format="%(asctime)s - %(levelname)s - %(message)s",
         )
         logging.info("Reporting initialized.")
+
+        self.settings = Settings()
+        self.log_file = self.settings.LOG_FILE
+        self.enable_console_logging = self.settings.ENABLE_CONSOLE_LOGGING
 
     def calculate_metrics(self):
         """

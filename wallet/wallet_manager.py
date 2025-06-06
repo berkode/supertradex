@@ -1,94 +1,147 @@
 import os
 import json
-import subprocess
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.backends import default_backend
+import logging
+from typing import Optional
+# import subprocess # Removed subprocess usage
+# from cryptography.hazmat.primitives.asymmetric import padding # Removed unused crypto imports
+# from cryptography.hazmat.primitives import hashes
+# from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+# from cryptography.hazmat.primitives import serialization
+# from cryptography.hazmat.backends import default_backend
 from dotenv import load_dotenv
+from solders.pubkey import Pubkey
+from solders.keypair import Keypair # Added Keypair import
+from pydantic import SecretStr # Import SecretStr
+from config.settings import Settings
+from utils.logger import get_logger # Use central logger
+from solana.rpc.async_api import AsyncClient # For type hinting
+from data.token_database import TokenDatabase # For type hinting
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from .env file - Handled by Settings now
+# load_dotenv('config/.env')
+
+# logger = logging.getLogger(__name__) # Use central logger
+logger = get_logger(__name__)
 
 class WalletManager:
-    def __init__(self):
-        self.wallet_address = os.getenv("WALLET_ADDRESS")
-        self.solana_cli_path = os.getenv("SOLANA_CLI_PATH", "solana")  # Default to 'solana' in PATH
-        self.private_key = None
-        self.verify_wallet_setup()
+    """Manages the user's Solana wallet keypair securely."""
+    def __init__(self, settings: Settings, solana_client: AsyncClient, db: TokenDatabase):
+        self.settings = settings
+        self.solana_client = solana_client
+        self.db = db
+        self._keypair: Optional[Keypair] = None # Store the loaded keypair
+        self.public_key: Optional[Pubkey] = None
 
-    def verify_wallet_setup(self):
-        """
-        Verify if the wallet is properly set up using the Solana CLI.
-        """
-        if not self.wallet_address:
-            raise ValueError("WALLET_ADDRESS is not set in the .env file.")
-        try:
-            # Check if the wallet address is accessible via Solana CLI
-            result = subprocess.run(
-                [self.solana_cli_path, "address"],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            cli_wallet_address = result.stdout.strip()
-            if cli_wallet_address != self.wallet_address:
-                raise ValueError("CLI wallet address does not match the configured wallet address.")
-            print(f"Wallet verified: {self.wallet_address}")
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Solana CLI error: {e.stderr.strip()}")
-        except FileNotFoundError:
-            raise RuntimeError("Solana CLI is not installed or not in PATH.")
+        # Load keypair on initialization
+        self._load_keypair()
 
-    def sign_transaction(self, transaction_data: dict) -> str:
+    async def initialize(self) -> bool:
         """
-        Sign a transaction using Solana CLI.
-        
-        Args:
-            transaction_data (dict): The transaction details to be signed.
+        Asynchronous initialization method.
+        Since the wallet is already initialized in __init__, this just verifies the state.
         
         Returns:
-            str: The signed transaction (base64-encoded signature).
+            bool: True if the wallet is properly initialized, False otherwise.
         """
         try:
-            # Serialize transaction data to JSON string
-            transaction_json = json.dumps(transaction_data, sort_keys=True)
-            
-            # Write the transaction JSON to a temporary file
-            with open("transaction.json", "w") as tx_file:
-                tx_file.write(transaction_json)
+            return self._keypair is not None and self.public_key is not None
+        except Exception as e:
+            logger.error(f"Error during WalletManager initialization: {e}")
+            return False
 
-            # Sign the transaction using Solana CLI
-            result = subprocess.run(
-                [self.solana_cli_path, "sign-message", "-m", transaction_json],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            signature = result.stdout.strip()
-            print("Transaction signed successfully.")
-            return signature
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Error signing transaction: {e.stderr.strip()}")
-        finally:
-            # Clean up the temporary transaction file
-            if os.path.exists("transaction.json"):
-                os.remove("transaction.json")
-
-    @staticmethod
-    def generate_key_pair():
-        """
-        Generate a new keypair using Solana CLI.
-        """
+    def _load_keypair(self):
+        """Loads the Keypair from the private key stored in settings."""
         try:
-            result = subprocess.run(
-                ["solana", "keygen", "new", "--no-bip39-passphrase", "--outfile", "keypair.json"],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            print(f"Keypair generated and saved to keypair.json.\n{result.stdout.strip()}")
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Error generating keypair: {e.stderr.strip()}")
+            # Retrieve the potentially masked private key string from settings
+            # Note: Settings masks it for logging, but WalletManager needs the real one.
+            # We rely on the initial loading from .env (before masking) being correct.
+            # Accessing WALLET_PRIVATE_KEY via the passed settings object if it exists there
+            # or fallback to os.getenv if it's a direct environment variable not in Settings model.
+            # For consistency with rules, it should be part of the Settings model.
+            private_key_str = None
+            if hasattr(self.settings, 'WALLET_PRIVATE_KEY'):
+                # If WALLET_PRIVATE_KEY is a SecretStr in Settings
+                if isinstance(self.settings.WALLET_PRIVATE_KEY, SecretStr):
+                    private_key_str = self.settings.WALLET_PRIVATE_KEY.get_secret_value()
+                else:
+                    private_key_str = self.settings.WALLET_PRIVATE_KEY
+            else:
+                # Fallback for older configurations or direct env usage
+                logger.warning("Attempting to load WALLET_PRIVATE_KEY directly from os.getenv. Consider adding it to the Settings model.")
+                private_key_str = os.getenv("WALLET_PRIVATE_KEY") 
 
+            if not private_key_str:
+                raise ValueError("WALLET_PRIVATE_KEY environment variable not found or empty.")
+
+            # Assuming the private key is stored as a base58 encoded string
+            # Or potentially a byte array string like '[1, 2, 3,...]' - check format!
+            # For base58 string:
+            self._keypair = Keypair.from_base58_string(private_key_str)
+
+            # For byte array string (e.g., from Phantom export):
+            # import ast
+            # pk_bytes = bytes(ast.literal_eval(private_key_str))
+            # self._keypair = Keypair.from_bytes(pk_bytes)
+
+            self.public_key = self._keypair.pubkey()
+            logger.info(f"Wallet keypair loaded successfully for public key: {self.public_key}")
+
+        except ValueError as e:
+            logger.error(f"Failed to load keypair: Invalid private key format or value. Error: {e}")
+            self._keypair = None
+            self.public_key = None
+            raise # Re-raise the error to prevent operation without a valid keypair
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while loading the keypair: {e}", exc_info=True)
+            self._keypair = None
+            self.public_key = None
+            raise # Re-raise the error
+
+    # Removed verify_wallet_setup - replaced by _load_keypair
+    # def verify_wallet_setup(self):
+    #     ...
+
+    def get_public_key(self) -> Optional[Pubkey]:
+        """
+        Get the public key of the wallet.
+        Returns:
+            Optional[Pubkey]: The wallet's public key or None if not loaded.
+        """
+        # Ensure keypair is loaded (or attempt reload if needed)
+        # if self._keypair is None:
+        #     self._load_keypair() # Or handle error depending on design
+        return self.public_key
+
+    def get_keypair(self) -> Optional[Keypair]:
+        """
+        Get the loaded Keypair object.
+        Returns:
+            Optional[Keypair]: The loaded Keypair or None if loading failed.
+        """
+        # Ensure keypair is loaded
+        # if self._keypair is None:
+        #     self._load_keypair()
+        return self._keypair
+
+    # Removed subprocess-based sign_transaction
+    # def sign_transaction(self, transaction_data: dict) -> str:
+    #     ...
+
+    # Removed subprocess-based generate_key_pair
+    # @staticmethod
+    # def generate_key_pair():
+    #     ...
+
+# Example usage (for testing):
+# if __name__ == '__main__':
+#     try:
+#         manager = WalletManager()
+#         pubkey = manager.get_public_key()
+#         kp = manager.get_keypair()
+#         if pubkey and kp:
+#             print(f"Public Key: {pubkey}")
+#             # print(f"Keypair: {kp}") # Careful printing keypair
+#         else:
+#             print("Failed to load wallet.")
+#     except Exception as e:
+#         print(f"Error: {e}")
