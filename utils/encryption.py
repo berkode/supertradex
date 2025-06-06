@@ -340,7 +340,7 @@ def test_encryption(encrypted_path: Path, password: str) -> bool:
                         'SOLANA_RPC_URL', 'HELIUS_API_KEY', 'SOLSNIFFER_API_KEY',
                         'TWITTER_API_KEY', 'TWITTER_API_KEY_SECRET', 'TWITTER_PASSWORD',
                         'DISCORD_BOT_TOKEN', 'DISCORD_CHANNEL_ID', 'DISCORD_WEBHOOK_URL',
-                        'BIRDEYE_API_KEY', 'JUPITER_API_ENDPOINT'
+                        'BIRDEYE_API_KEY', 'JUPITER_PRICE_API'
                     ]
                     for key in sensitive_keys_to_test:
                         value = os.getenv(key)

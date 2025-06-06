@@ -64,7 +64,8 @@ class Settings(BaseSettings):
     ENCRYPTION_KEY_PATH: str
 
     # --- API Endpoints ---
-    JUPITER_API_ENDPOINT: str
+    JUPITER_PRICE_API: str
+    JUPITER_ULTRA_API: str
     SOLANA_MAINNET_RPC: str
     SOLANA_TESTNET_RPC: str
     SOLANA_RPC_URL: Optional[str] = None # Derived from HELIUS_RPC_URL or specific SOLANA_MAINNET/TESTNET_RPC
@@ -356,7 +357,7 @@ class Settings(BaseSettings):
     NETWORK_POLL_INTERVAL: int = Field(alias='MONITORING_INTERVAL_SECONDS')
 
     # --- Wallet Settings ---
-    # WALLET_PRIVATE_KEY: SecretStr # REMOVED - Loaded directly via os.getenv in WalletManager
+    WALLET_PRIVATE_KEY: SecretStr  # Required - loaded from encrypted .env file
 
     # --- WebSocket/Blockchain Listener Configuration ---
     WEBSOCKET_DEFAULT_RECONNECT_DELAY: int

@@ -92,9 +92,11 @@ class PlatformTracker:
             logger.info("Initializing PlatformTracker")
             
             # Initialize DexScreener API
-            if not await self.dexscreener.initialize():
-                logger.error("Failed to initialize DexScreener API")
-                return False
+            try:
+                if not await self.dexscreener.initialize():
+                    logger.error("Failed to initialize DexScreener API - continuing without it")
+            except Exception as e:
+                logger.error(f"DexScreener API initialization failed: {e} - continuing without it")
             
             # Initialize the bonding curve calculator if we have a Solana client
             if self.solana_client:

@@ -38,10 +38,11 @@ class WebSocketConnectionManager(SystemMonitoringMixin):
         self.settings = settings
         self.logger = logger or get_logger(__name__)
         
-        # Initialize centralized configuration manager
-        from config.config_manager import initialize_config_manager
-        self.config_manager = initialize_config_manager(settings)
-        ws_config = self.config_manager.get_websocket_config()
+        # Initialize configuration directly from settings
+        ws_config = {
+            'WEBSOCKET_MAX_RETRIES_PER_ENDPOINT': getattr(settings, 'WEBSOCKET_MAX_RETRIES_PER_ENDPOINT', 3),
+            'WEBSOCKET_CONNECT_TIMEOUT': getattr(settings, 'WEBSOCKET_CONNECT_TIMEOUT', 30)
+        }
         
         # Initialize performance monitoring for this component
         self._update_health_status("initializing")

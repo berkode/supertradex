@@ -104,16 +104,16 @@ class PaperTrading:
             self.logger.error(f"Error getting SOL price: {e}")
             return 150.0  # Fallback price
 
-    async def execute_trade_sol(self, trade_id: int, action: str, 
-                               mint: str, price_sol: float, amount: float) -> bool:
+    async def execute_trade(self, trade_id: int, action: str, 
+                           mint: str, price_sol: float, amount: float) -> bool:
         """
-        Execute a SOL-based paper trade using SOL price (PRIMARY METHOD FOR SOL-BASED TRADING).
+        Execute a SOL-based paper trade (THE ONLY TRADING METHOD FOR SOLANA).
         
         Args:
             trade_id: The ID of the existing trade record to update.
             action: 'BUY' or 'SELL'.
             mint: The mint of the token traded.
-            price_sol: The simulated SOL price of execution per token.
+            price_sol: The SOL price per token (THIS IS THE REAL TRADING PRICE).
             amount: The amount of token units traded.
             
         Returns:
@@ -199,17 +199,15 @@ class PaperTrading:
                     self.paper_token_total_cost_usd.pop(mint, None)
                 else:
                     self.logger.info(f"[SOL Paper Wallet] Sold {amount:.4f} {mint}. Remaining: {self.paper_token_balances[mint]:.4f}. Realized P&L: {realized_pnl_sol:.6f} SOL (${realized_pnl_usd:.2f})")
-            else:
-                self.logger.info(f"[SOL Paper Wallet] SELL: Attempted to sell {original_amount_for_sell_attempt:.4f} {mint} but no actual sell occurred (amount adjusted to 0). Proceeds: {cost_or_proceeds_sol:.6f} SOL. New SOL bal: {self.paper_sol_balance:.6f}")
+            else: 
+                self.logger.info(f"[SOL Paper Wallet] SELL: Attempted to sell {original_amount_for_sell_attempt:.4f} {mint} but no actual sell occurred (amount adjusted to 0). Proceeds: {cost_or_proceeds_sol:.6f} SOL (${cost_or_proceeds_usd:.2f}). New SOL bal: {self.paper_sol_balance:.6f}")
 
-            self.logger.info(f"[SOL Paper Wallet] SELL: {amount:.4f} {mint} at {price_sol:.8f} SOL. Proceeds: {cost_or_proceeds_sol:.6f} SOL (${cost_or_proceeds_usd:.2f}). New SOL bal: {self.paper_sol_balance:.6f}")
-
-        # --- Persist SOL-Based Wallet State to Database ---
+        # --- Persist In-Memory Wallet State to Database & Update Trade Record --- 
         try:
             # 1. Persist SOL balance
             await self.db.set_paper_summary_value('paper_sol_balance', value_float=self.paper_sol_balance)
 
-            # 2. Persist token position with SOL cost basis
+            # 2. Persist token position
             final_token_quantity = self.paper_token_balances.get(mint, 0.0)
             final_total_cost_sol = self.paper_token_total_cost_sol.get(mint, 0.0)
             final_total_cost_usd = self.paper_token_total_cost_usd.get(mint, 0.0)
@@ -217,172 +215,36 @@ class PaperTrading:
             final_avg_price_usd = (final_total_cost_usd / final_token_quantity) if final_token_quantity > 1e-9 else 0.0
 
             if final_token_quantity > 1e-9:
-                # Store both SOL and USD cost basis
                 await self.db.upsert_paper_position(
                     mint=mint, 
                     quantity=final_token_quantity, 
-                    total_cost_usd=final_total_cost_usd,  # Keep for compatibility
+                    total_cost_usd=final_total_cost_usd,  # Keep for display compatibility
                     average_price_usd=final_avg_price_usd,
-                    total_cost_sol=final_total_cost_sol,  # Add SOL cost basis
+                    total_cost_sol=final_total_cost_sol,  # Primary cost basis
                     average_price_sol=final_avg_price_sol
                 )
-            else:
-                await self.db.delete_paper_position(mint)
-            
-            # 3. Update trade record with SOL-based details
-            notes = f"SOL Paper trade ({action_upper}): {amount:.4f} {mint} @ {price_sol:.8f} SOL. Sim Wallet SOL Bal: {self.paper_sol_balance:.6f}"
-            details = {
-                'paper_trade': True,
-                'paper_trade_sol_based': True,  # Mark as SOL-based trade
-                'paper_price_sol': price_sol,   # PRIMARY: SOL price
-                'paper_price_usd': price_sol * current_sol_price_usd if current_sol_price_usd else None,  # SECONDARY: USD price
-                'paper_amount_token_traded': amount,
-                'paper_total_sol_value': cost_or_proceeds_sol,
-                'paper_total_usd_value': cost_or_proceeds_usd,
-                'paper_sim_sol_balance_after': self.paper_sol_balance,
-                'paper_token_balance_after': final_token_quantity,
-                'executed_at': datetime.now(timezone.utc).isoformat(),
-                'sol_price_usd_at_execution': current_sol_price_usd
-            }
-            if realized_pnl_sol is not None:
-                details['paper_realized_pnl_sol'] = realized_pnl_sol
-                details['paper_realized_pnl_usd'] = realized_pnl_usd
-            if action_upper == 'SELL' and original_amount_for_sell_attempt > amount:
-                details['paper_sell_amount_requested'] = original_amount_for_sell_attempt
-                details['paper_sell_amount_actual'] = amount
-            
-            db_trade_update_success = await self.db.update_trade_status(
-                trade_id=trade_id, 
-                new_status='paper_completed_sol', 
-                notes=notes, 
-                details=details
-            )
-            
-            if db_trade_update_success:
-                self.logger.info(f"SOL-based paper trade (ID: {trade_id}) successfully processed and persisted.")
-                return True
-            else:
-                self.logger.error(f"Failed to update DB trade status for SOL-based trade ID {trade_id} after paper wallet persistence.")
-                return False
-                
-        except Exception as e:
-            self.logger.error(f"Error persisting SOL-based paper trade (ID: {trade_id}) state to DB: {e}", exc_info=True)
-            return False
-
-    async def execute_trade(self, trade_id: int, action: str, 
-                           mint: str, price: float, amount: float) -> bool:
-        """
-        Marks an existing trade record as paper-traded and updates the simulated paper wallet (in-memory and DB).
-        
-        Args:
-            trade_id: The ID of the existing trade record to update.
-            action: 'BUY' or 'SELL'.
-            mint: The mint of the token traded.
-            price: The simulated USD price of execution per token.
-            amount: The amount of token units traded.
-            
-        Returns:
-            True if successful (DB update and paper wallet update), False otherwise.
-        """
-        action_upper = action.upper()
-        if action_upper not in ['BUY', 'SELL']:
-            self.logger.error(f"Invalid action '{action}' for paper trade ID {trade_id}. Must be BUY or SELL.")
-            return False
-
-        if price <= 0 or amount < 0: # Allow zero amount for sell that might get adjusted from dust
-            if not (action_upper == 'SELL' and amount == 0 and price > 0):
-                 self.logger.error(f"Invalid price ({price}) or amount ({amount}) for paper trade ID {trade_id}. Price must be >0. Amount must be >=0.")
-                 return False
-
-        # --- Simulate Wallet Transaction (In-Memory) --- 
-        cost_or_proceeds_usd = amount * price
-        original_amount_for_sell_attempt = amount
-        realized_pnl_usd: Optional[float] = None
-
-        if action_upper == 'BUY':
-            if self.paper_sol_balance < cost_or_proceeds_usd:
-                self.logger.warning(f"[Paper Wallet] Insufficient paper SOL balance ({self.paper_sol_balance:.2f} SOL) to buy {amount:.4f} {mint} for ${cost_or_proceeds_usd:.2f} USD. Trade ID: {trade_id}")
-                return False 
-            
-            self.paper_sol_balance -= cost_or_proceeds_usd
-            current_quantity = self.paper_token_balances.get(mint, 0.0)
-            current_total_cost = self.paper_token_total_cost_usd.get(mint, 0.0)
-            
-            self.paper_token_balances[mint] = current_quantity + amount
-            self.paper_token_total_cost_usd[mint] = current_total_cost + cost_or_proceeds_usd
-            self.logger.info(f"[Paper Wallet MEM] BUY: {amount:.4f} {mint} at ${price:.4f}. Cost: ${cost_or_proceeds_usd:.2f}. New SOL bal: {self.paper_sol_balance:.2f}")
-
-        elif action_upper == 'SELL':
-            current_quantity_before_sell = self.paper_token_balances.get(mint, 0.0)
-            current_total_cost_before_sell = self.paper_token_total_cost_usd.get(mint, 0.0)
-            avg_cost_of_position_before_sell = (current_total_cost_before_sell / current_quantity_before_sell) if current_quantity_before_sell > 1e-9 else 0
-
-            if current_quantity_before_sell < amount:
-                self.logger.warning(f"[Paper Wallet] Insufficient paper token balance ({current_quantity_before_sell:.4f} {mint}) to sell requested {amount:.4f}. Selling available {current_quantity_before_sell:.4f}. Trade ID: {trade_id}")
-                amount = current_quantity_before_sell 
-            
-            if amount <= 1e-9: 
-                self.logger.info(f"[Paper Wallet] No actual amount of {mint} to sell for trade ID {trade_id} (balance is {current_quantity_before_sell:.8f}, requested {original_amount_for_sell_attempt:.4f}). Trade will be marked, but wallet unchanged.")
-                amount = 0.0 # Ensure amount for DB log is zero if nothing was sold
-            
-            cost_or_proceeds_usd = amount * price # Recalculate if amount was adjusted
-            self.paper_sol_balance += cost_or_proceeds_usd
-            
-            if amount > 1e-9: 
-                cost_basis_of_amount_sold = amount * avg_cost_of_position_before_sell
-                realized_pnl_usd = cost_or_proceeds_usd - cost_basis_of_amount_sold
-                
-                self.paper_token_balances[mint] = current_quantity_before_sell - amount
-                self.paper_token_total_cost_usd[mint] = current_total_cost_before_sell - cost_basis_of_amount_sold
-
-                if self.paper_token_balances[mint] <= 1e-9: 
-                    self.logger.info(f"[Paper Wallet MEM] Position for {mint} closed. Realized P&L: ${realized_pnl_usd:.2f}")
-                    self.paper_token_balances.pop(mint, None)
-                    self.paper_token_total_cost_usd.pop(mint, None)
-                else:
-                    self.logger.info(f"[Paper Wallet MEM] Sold {amount:.4f} {mint}. Remaining: {self.paper_token_balances[mint]:.4f}. Realized P&L: ${realized_pnl_usd:.2f}")
-            else: # amount is 0
-                 self.logger.info(f"[Paper Wallet MEM] SELL: Attempted to sell {original_amount_for_sell_attempt:.4f} {mint} but no actual sell occurred (amount adjusted to 0). Proceeds: ${cost_or_proceeds_usd:.2f}. New SOL bal: {self.paper_sol_balance:.2f}")
-
-            self.logger.info(f"[Paper Wallet MEM] SELL ({action_upper}): {amount:.4f} {mint} at ${price:.4f}. Proceeds: ${cost_or_proceeds_usd:.2f}. New SOL bal: {self.paper_sol_balance:.2f}")
-
-        # --- Persist In-Memory Wallet State to Database & Update Trade Record --- 
-        db_success = False
-        try:
-            # 1. Persist SOL balance
-            await self.db.set_paper_summary_value('paper_sol_balance', value_float=self.paper_sol_balance)
-
-            # 2. Persist token position
-            final_token_quantity = self.paper_token_balances.get(mint, 0.0)
-            final_total_cost_usd = self.paper_token_total_cost_usd.get(mint, 0.0)
-            final_avg_price_usd = (final_total_cost_usd / final_token_quantity) if final_token_quantity > 1e-9 else 0.0
-
-            if final_token_quantity > 1e-9:
-                await self.db.upsert_paper_position(
-                    mint=mint, 
-                    quantity=final_token_quantity, 
-                    total_cost_usd=final_total_cost_usd,
-                    average_price_usd=final_avg_price_usd
-                )
-            else: # Quantity is zero, delete from DB
+            else: 
                 await self.db.delete_paper_position(mint)
             
             # 3. Update the original trade record in DB
-            notes = f"Paper trade ({action_upper}): {amount:.4f} {mint} @ ${price:.4f}. Sim Wallet SOL Bal: {self.paper_sol_balance:.2f}"
+            notes = f"Paper trade ({action_upper}): {amount:.4f} {mint} @ {price_sol:.8f} SOL. Sim Wallet SOL Bal: {self.paper_sol_balance:.6f}"
             details = {
                 'paper_trade': True,
-                'paper_price_usd': price, 
-                'paper_amount_token_traded': amount, # Actual amount paper-traded from wallet
-                'paper_total_usd_value': cost_or_proceeds_usd,
+                'paper_price_sol': price_sol,  # PRIMARY: SOL price used for trading
+                'paper_price_usd': cost_or_proceeds_usd / amount if amount > 0 else 0,  # SECONDARY: USD equivalent for display
+                'paper_amount_token_traded': amount,
+                'paper_total_sol_value': cost_or_proceeds_sol,  # PRIMARY: SOL value
+                'paper_total_usd_value': cost_or_proceeds_usd,  # SECONDARY: USD equivalent for display
                 'paper_sim_sol_balance_after': self.paper_sol_balance,
                 'paper_token_balance_after': final_token_quantity,
                 'executed_at': datetime.now(timezone.utc).isoformat()
             }
-            if realized_pnl_usd is not None:
-                details['paper_realized_pnl_usd'] = realized_pnl_usd
+            if realized_pnl_sol is not None:
+                details['paper_realized_pnl_sol'] = realized_pnl_sol  # PRIMARY P&L
+                details['paper_realized_pnl_usd'] = realized_pnl_usd  # SECONDARY P&L for display
             if action_upper == 'SELL' and original_amount_for_sell_attempt > amount:
-                 details['paper_sell_amount_requested'] = original_amount_for_sell_attempt
-                 details['paper_sell_amount_actual'] = amount
+                details['paper_sell_amount_requested'] = original_amount_for_sell_attempt
+                details['paper_sell_amount_actual'] = amount
             
             db_trade_update_success = await self.db.update_trade_status(
                 trade_id=trade_id, 
@@ -392,20 +254,21 @@ class PaperTrading:
             )
             
             if db_trade_update_success:
-                self.logger.info(f"Paper trade (ID: {trade_id}) successfully processed and persisted.")
-                return True # Overall success
+                self.logger.info(f"SOL-based paper trade (ID: {trade_id}) successfully processed and persisted.")
+                # Log to specialized trade logger
+                trade_logger = logging.getLogger('trades')
+                if realized_pnl_sol is not None:
+                    trade_logger.info(f"SOL-TRADE #{trade_id}: {action_upper} {amount:.4f} {mint[:8]}... @ {price_sol:.8f} SOL ({cost_or_proceeds_sol:.6f} SOL) | P&L: {realized_pnl_sol:.6f} SOL | Balance: {self.paper_sol_balance:.6f} SOL")
+                else:
+                    trade_logger.info(f"SOL-TRADE #{trade_id}: {action_upper} {amount:.4f} {mint[:8]}... @ {price_sol:.8f} SOL ({cost_or_proceeds_sol:.6f} SOL) | Balance: {self.paper_sol_balance:.6f} SOL")
+                return True
             else:
-                self.logger.error(f"Failed to update DB trade status for trade ID {trade_id} after paper wallet persistence.")
-                # TODO: Critical - Wallet state changed but trade record not updated. Potential inconsistency.
-                # This might require a more complex transaction or compensation logic.
-                return False # Indicate overall failure due to DB issue
-            
+                self.logger.error(f"Failed to update DB trade status for SOL-based trade ID {trade_id} after paper wallet persistence.")
+                return False
+                
         except Exception as e:
-            self.logger.error(f"Error persisting paper trade (ID: {trade_id}) state to DB: {e}", exc_info=True)
-            # TODO: Critical - Wallet state changed in memory but DB persistence failed. 
-            # This is a point where data could become inconsistent if the app crashes.
-            # For now, the in-memory change is done. A robust solution might try to queue this DB update.
-            return False # Indicate overall failure
+            self.logger.error(f"Error persisting SOL-based paper trade (ID: {trade_id}) state to DB: {e}", exc_info=True)
+            return False
 
     async def get_paper_position(self, mint: str) -> Dict[str, Any]:
         """

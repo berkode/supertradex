@@ -49,6 +49,7 @@ class Token(AsyncAttrs, Base):
     last_updated = Column(DateTime, default=datetime.utcnow)
     last_filter_update = Column(DateTime, nullable=True)
     last_scanned_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
     dex_id = Column(String(50), nullable=True)
 
     # RugCheck.xyz specific fields

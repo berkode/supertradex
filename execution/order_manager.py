@@ -102,7 +102,8 @@ class OrderManager:
         self.slippage_bps = int(self.settings.MAX_SLIPPAGE_PCT * 100) # Jupiter expects BPS (e.g. 0.5% is 50 BPS)
         self.compute_unit_price_micro_lamports = self.settings.COMPUTE_UNIT_PRICE_MICRO_LAMPORTS
         self.compute_unit_limit = self.settings.COMPUTE_UNIT_LIMIT
-        self.jupiter_api_base_url = self.settings.JUPITER_API_ENDPOINT
+        self.jupiter_ultra_api_url = self.settings.JUPITER_ULTRA_API
+        self.jupiter_price_api_url = self.settings.JUPITER_PRICE_API
 
         self.logger = logger
         self.wallet_pubkey_str = str(self.wallet_manager.get_public_key()) if self.wallet_manager.get_public_key() else None
@@ -164,7 +165,7 @@ class OrderManager:
             return None
                 
         slippage_val = slippage_bps if slippage_bps is not None else self.slippage_bps
-        url = f"{self.jupiter_api_base_url}/quote"
+        url = f"{self.jupiter_ultra_api_url}/order"
         params = {
             "inputMint": input_mint,
             "outputMint": output_mint,
@@ -220,7 +221,7 @@ class OrderManager:
             logger.warning("Circuit breaker active. Skipping Jupiter swap transaction fetch.")
             return None
                 
-        url = f"{self.jupiter_api_base_url}/swap"
+        url = f"{self.jupiter_ultra_api_url}/swap"
         wallet_address = self.wallet_manager.get_public_key()
         if not wallet_address:
              self.logger.error("Cannot get swap transaction: Wallet address not available.")
@@ -397,29 +398,26 @@ class OrderManager:
                         self.logger.error(f"[Paper Trade] Could not determine action or traded_mint for trade {trade_id}.")
                         return None
 
-                    # Get simulated price from PriceMonitor
-                    # Use a short max_age to prefer fresh prices for paper trades
-                    simulated_price_usd = await self.price_monitor.get_current_price_usd(traded_mint, max_age_seconds=60)
-
-                    if simulated_price_usd is None:
-                        self.logger.error(f"[Paper Trade] Could not get price from PriceMonitor for {traded_mint} for trade {trade_id}. Cannot execute paper trade.")
+                    # Get SOL price for SOL-based trading (PRIMARY - used for actual trade calculation)
+                    simulated_price_sol = await self.price_monitor.get_current_price_sol(traded_mint, max_age_seconds=300)
+                    if simulated_price_sol is None or simulated_price_sol <= 0:
+                        self.logger.error(f"[Paper Trade] Could not get valid SOL price for {traded_mint} (got {simulated_price_sol}). Cannot execute paper trade {trade_id}.")
                         return None
                     
-                    self.logger.info(f"[Paper Trade] Using simulated price for {traded_mint}: ${simulated_price_usd:.6f}")
+                    self.logger.info(f"[Paper Trade] Using SOL price for {traded_mint}: {simulated_price_sol:.8f} SOL per token")
 
+                    # Calculate the correct amount of tokens to trade based on SOL
                     if action == "BUY":
-                        if simulated_price_usd > 0:
-                            simulated_amount_traded = input_amount / simulated_price_usd # input_amount is SOL here
-                        else:
-                            self.logger.error(f"[Paper Trade] Simulated price for {traded_mint} is ${simulated_price_usd:.6f}, cannot calculate BUY amount for trade {trade_id}.")
-                            return None
-                    # For SELL, simulated_amount_traded is already set to input_amount
+                        # BUY: input_amount is SOL to spend, calculate how many tokens we can buy
+                        simulated_amount_traded = input_amount / simulated_price_sol  # SOL ÷ (SOL/token) = tokens
+                        self.logger.info(f"[Paper Trade] BUY calculation: {input_amount:.6f} SOL ÷ {simulated_price_sol:.8f} SOL/token = {simulated_amount_traded:.4f} tokens")
+                    # For SELL, simulated_amount_traded is already set to input_amount (tokens to sell)
 
                     paper_trade_successful = await self.paper_trader.execute_trade(
                         trade_id=trade_id,
                         action=action,
                         mint=traded_mint,
-                        price=simulated_price_usd,
+                        price_sol=simulated_price_sol,  # Use SOL price (PRIMARY)
                         amount=simulated_amount_traded
                     )
 

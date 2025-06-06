@@ -1,268 +1,282 @@
-from flask import Flask, render_template, jsonify, request
-from flask_socketio import SocketIO
-from flask_sqlalchemy import SQLAlchemy
-import os
-from dotenv import load_dotenv
-from typing import Dict, List, Optional
-import threading
-import time
-from datetime import datetime
-import pandas as pd
-from performance.run_strategy import MemeTokenStrategy
-from performance.fetch_historical_data import SolanaDataFetcher
-from performance.visualize_results import create_dashboard
-from performance.metrics import calculate_metrics
-from data.token_database import TokenDatabase
-from data.models import db, User, Token, Strategy, Trade, Alert
-from views import views
+import asyncio
+import json
 import logging
-from config.settings import Settings, initialize_settings
+from datetime import datetime, timezone
+from typing import Dict, List, Optional, Any
+import os
+from pathlib import Path
 
-# Initialize settings
-initialize_settings()
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+import uvicorn
 
-# Get settings instance
-settings = Settings()
+# Import SupertradeX components
+from config.settings import Settings
+from data.token_database import TokenDatabase
+from strategies.paper_trading import PaperTrading
+from wallet.wallet_manager import WalletManager
+from data.price_monitor import PriceMonitor
+from utils.logger import get_logger
 
-# Import the encrypted env loader
-try:
-    from utils.env_loader import load_encrypted_env
-    # Try to load encrypted environment variables first
-    encrypted_env_path = os.environ.get('ENCRYPTED_ENV_PATH', 'config/.env')
-    if os.path.exists(encrypted_env_path):
-        load_encrypted_env(encrypted_env_path)
-    else:
-        # Fall back to regular .env if encrypted file doesn't exist
-        load_dotenv()
-except ImportError:
-    # Fall back to regular .env if module not found
-    load_dotenv()
+# Initialize logging
+logger = get_logger(__name__)
 
-def create_app():
-    app = Flask(__name__)
-    app.config['SECRET_KEY'] = settings.SECRET_KEY or 'fallback_secret_key'
-    db_path = settings.DATABASE_URL
-    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-    db.init_app(app)
-
-    from .views import views
-    from .routes import routes
-
-    app.register_blueprint(views, url_prefix='/')
-    app.register_blueprint(routes, url_prefix='/app')
-
-    # Global state
-    active_strategies: Dict[str, MemeTokenStrategy] = {}
-    update_intervals = {
-        '1s': 1,
-        '5s': 5,
-        '15s': 15,
-        '1m': 60,
-        '5m': 300,
-        '15m': 900,
-        '1h': 3600,
-        '6h': 21600,
-        '24h': 86400
-    }
-
-    @app.route('/')
-    def index():
-        """Render the main dashboard."""
-        return render_template('index.html')
-
-    @app.route('/backtest')
-    def backtest():
-        """Render the backtest analysis dashboard."""
-        return render_template('backtest.html')
-
-    @app.route('/api/tokens')
-    def get_tokens():
-        """Get list of available tokens for backtesting."""
+class SupertradeXWebApp:
+    def __init__(self):
+        self.app = FastAPI(
+            title="SupertradeX Dashboard",
+            description="Real-time Solana trading dashboard",
+            version="1.0.0"
+        )
+        
+        # Initialize components
+        self.settings = None
+        self.db = None
+        self.paper_trading = None
+        self.wallet_manager = None
+        self.price_monitor = None
+        
+        # Real-time data cache
+        self.live_data = {
+            'tokens': [],
+            'positions': [],
+            'trades': [],
+            'stats': {},
+            'last_update': None
+        }
+        
+        self.setup_routes()
+        self.setup_static_files()
+        
+    async def initialize_components(self):
+        """Initialize SupertradeX components"""
         try:
-            db = TokenDatabase()
-            tokens = db.get_all_tokens()
-            return jsonify({'status': 'success', 'tokens': tokens})
+            # Initialize settings
+            self.settings = Settings()
+            logger.info("Settings initialized")
+            
+            # Initialize database
+            self.db = await TokenDatabase.create(self.settings.DATABASE_FILE_PATH, self.settings)
+            logger.info("Token database initialized")
+            
+            # Initialize wallet manager
+            self.wallet_manager = WalletManager(self.settings)
+            logger.info("Wallet manager initialized")
+            
+            # Initialize price monitor
+            self.price_monitor = PriceMonitor(self.settings, self.db)
+            logger.info("Price monitor initialized")
+            
+            # Initialize paper trading
+            self.paper_trading = PaperTrading(self.settings, self.db, self.wallet_manager, self.price_monitor)
+            await self.paper_trading.load_persistent_state()
+            logger.info("Paper trading initialized")
+            
+            logger.info("All components initialized successfully")
+            
         except Exception as e:
-            return jsonify({'status': 'error', 'message': str(e)})
-
-    @app.route('/api/strategy_params/<strategy>')
-    def get_strategy_params(strategy):
-        """Get parameters for a specific strategy."""
-        try:
-            params = {
-                'ma_crossover': [
-                    {'name': 'short_window', 'label': 'Short MA Period', 'type': 'number', 'default': 10},
-                    {'name': 'long_window', 'label': 'Long MA Period', 'type': 'number', 'default': 50}
-                ],
-                'rsi': [
-                    {'name': 'rsi_period', 'label': 'RSI Period', 'type': 'number', 'default': 14},
-                    {'name': 'overbought', 'label': 'Overbought Level', 'type': 'number', 'default': 70},
-                    {'name': 'oversold', 'label': 'Oversold Level', 'type': 'number', 'default': 30}
-                ],
-                'macd': [
-                    {'name': 'fast_period', 'label': 'Fast EMA Period', 'type': 'number', 'default': 12},
-                    {'name': 'slow_period', 'label': 'Slow EMA Period', 'type': 'number', 'default': 26},
-                    {'name': 'signal_period', 'label': 'Signal Period', 'type': 'number', 'default': 9}
-                ]
+            logger.error(f"Failed to initialize components: {e}", exc_info=True)
+            raise
+    
+    def setup_static_files(self):
+        """Setup static file serving"""
+        web_dir = Path(__file__).parent
+        static_dir = web_dir / "static"
+        templates_dir = web_dir / "templates"
+        
+        # Create directories if they don't exist
+        static_dir.mkdir(exist_ok=True)
+        templates_dir.mkdir(exist_ok=True)
+        
+        # Mount static files
+        self.app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+        
+        # Setup templates
+        self.templates = Jinja2Templates(directory=str(templates_dir))
+    
+    def setup_routes(self):
+        """Setup all API routes"""
+        
+        @self.app.on_event("startup")
+        async def startup_event():
+            await self.initialize_components()
+        
+        @self.app.get("/", response_class=HTMLResponse)
+        async def dashboard(request: Request):
+            """Main dashboard page"""
+            return self.templates.TemplateResponse("dashboard.html", {"request": request})
+        
+        @self.app.get("/api/health")
+        async def health_check():
+            """System health check"""
+            health_status = {
+                "status": "healthy",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "components": {
+                    "database": bool(self.db),
+                    "paper_trading": bool(self.paper_trading),
+                    "wallet_manager": bool(self.wallet_manager),
+                    "price_monitor": bool(self.price_monitor)
+                }
             }
-            return jsonify({'status': 'success', 'params': params.get(strategy, [])})
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': str(e)})
-
-    @app.route('/scan_tokens', methods=['POST'])
-    def scan_tokens():
-        """Scan tokens and save to database."""
-        try:
-            # TODO: Implement token scanning logic
-            return jsonify({'status': 'success', 'message': 'Token scanning started'})
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': str(e)})
-
-    @app.route('/start_trading', methods=['POST'])
-    def start_trading():
-        """Start live trading."""
-        try:
-            data = request.json
-            token_address = data.get('token_address')
-            interval = data.get('interval', '1h')
-            
-            if not token_address:
-                return jsonify({'status': 'error', 'message': 'Token address required'})
+            return health_status
+        
+        @self.app.get("/api/tokens")
+        async def get_active_tokens():
+            """Get list of active tokens for trading"""
+            try:
+                if not self.db:
+                    raise HTTPException(status_code=503, detail="Database not available")
                 
-            strategy = MemeTokenStrategy(token_address)
-            
-            def handle_price_update(data):
-                socketio.emit('price_update', {
-                    'token': token_address,
-                    'data': data,
-                    'timestamp': datetime.now().isoformat()
-                })
+                tokens = await self.db.get_top_tokens_for_trading(limit=20)
+                token_list = []
                 
-            strategy.start_realtime_monitoring(handle_price_update)
-            active_strategies[token_address] = strategy
-            
-            return jsonify({'status': 'success', 'message': 'Trading started'})
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': str(e)})
-
-    @app.route('/start_paper_trading', methods=['POST'])
-    def start_paper_trading():
-        """Start paper trading on testnet."""
-        try:
-            data = request.json
-            token_address = data.get('token_address')
-            interval = data.get('interval', '1h')
-            
-            if not token_address:
-                return jsonify({'status': 'error', 'message': 'Token address required'})
+                for token in tokens:
+                    # Get current price from API data
+                    current_price_sol = 0.000001
+                    if token.api_data and isinstance(token.api_data, dict):
+                        current_price_sol = token.api_data.get('price_sol', current_price_sol)
+                    elif token.price:
+                        # Estimate SOL price (assuming ~$150/SOL)
+                        current_price_sol = token.price / 150
+                    
+                    token_data = {
+                        "mint": token.mint,
+                        "symbol": token.symbol or 'UNKNOWN',
+                        "name": token.name or '',
+                        "price_sol": current_price_sol,
+                        "price_usd": token.price or 0,
+                        "volume_24h": token.volume_24h or 0,
+                        "liquidity": token.liquidity or 0,
+                        "dex_id": token.dex_id or '',
+                        "rugcheck_score": token.rugcheck_score or 0,
+                        "monitoring_status": token.monitoring_status or 'inactive',
+                        "last_updated": token.last_updated.isoformat() if token.last_updated else None
+                    }
+                    token_list.append(token_data)
                 
-            # TODO: Implement paper trading logic using testnet
-            return jsonify({'status': 'success', 'message': 'Paper trading started'})
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': str(e)})
-
-    @app.route('/start_backtesting', methods=['POST'])
-    def start_backtesting():
-        """Start backtesting on historical data."""
-        try:
-            data = request.json
-            token_address = data.get('token_address')
-            strategy = data.get('strategy')
-            timeframe = data.get('timeframe', '1h')
-            start_date = data.get('start_date')
-            end_date = data.get('end_date')
-            params = data.get('params', {})
-            
-            if not all([token_address, strategy, start_date, end_date]):
-                return jsonify({'status': 'error', 'message': 'Missing required parameters'})
-
-            # Start backtest in a separate thread
-            thread = threading.Thread(
-                target=run_backtest,
-                args=(token_address, strategy, timeframe, start_date, end_date, params)
-            )
-            thread.daemon = True
-            thread.start()
-            
-            return jsonify({'status': 'success', 'message': 'Backtest started'})
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': str(e)})
-
-    def run_backtest(token_address: str, strategy: str, timeframe: str, 
-                    start_date: str, end_date: str, params: Dict):
-        """Run backtest and emit results via WebSocket."""
-        try:
-            # Fetch historical data
-            data_fetcher = SolanaDataFetcher()
-            historical_data = data_fetcher.fetch_data(
-                token_address=token_address,
-                interval=timeframe,
-                start_date=start_date,
-                end_date=end_date
-            )
-            
-            # Initialize strategy
-            strategy_instance = MemeTokenStrategy(token_address)
-            strategy_instance.set_parameters(params)
-            
-            # Run backtest
-            results = strategy_instance.backtest(historical_data)
-            
-            # Calculate metrics
-            metrics = calculate_metrics(results)
-            
-            # Create visualizations
-            charts = create_dashboard(historical_data, results)
-            
-            # Emit results via WebSocket
-            socketio.emit('backtest_update', {
-                'metrics': metrics,
-                'charts': charts,
-                'trades': results['trades'].to_dict('records')
-            })
-            
-        except Exception as e:
-            socketio.emit('backtest_error', {'message': str(e)})
-
-    @app.route('/stop_trading', methods=['POST'])
-    def stop_trading():
-        """Stop trading for a specific token."""
-        try:
-            data = request.json
-            token_address = data.get('token_address')
-            
-            if token_address in active_strategies:
-                active_strategies[token_address].stop_realtime_monitoring()
-                del active_strategies[token_address]
+                return {"tokens": token_list, "count": len(token_list)}
                 
-            return jsonify({'status': 'success', 'message': 'Trading stopped'})
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': str(e)})
-
-    @app.route('/update_interval', methods=['POST'])
-    def update_interval():
-        """Update the data refresh interval."""
-        try:
-            data = request.json
-            interval = data.get('interval')
-            
-            if interval not in update_intervals:
-                return jsonify({'status': 'error', 'message': 'Invalid interval'})
+            except Exception as e:
+                logger.error(f"Error fetching tokens: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.get("/api/paper/balance")
+        async def get_paper_balance():
+            """Get current paper trading balance"""
+            try:
+                if not self.db:
+                    raise HTTPException(status_code=503, detail="Database not available")
                 
-            # TODO: Implement interval update logic
-            return jsonify({'status': 'success', 'message': f'Interval updated to {interval}'})
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': str(e)})
+                # Get SOL balance
+                sol_balance_data = await self.db.get_paper_summary_value('paper_sol_balance')
+                sol_balance = 0.0
+                
+                if sol_balance_data and sol_balance_data.get('value_float') is not None:
+                    sol_balance = sol_balance_data['value_float']
+                
+                # Estimate USD value (rough conversion)
+                usd_equivalent = sol_balance * 150  # Approximate SOL/USD rate
+                
+                return {
+                    "sol_balance": sol_balance,
+                    "usd_equivalent": usd_equivalent,
+                    "last_updated": datetime.now(timezone.utc).isoformat()
+                }
+                
+            except Exception as e:
+                logger.error(f"Error fetching paper balance: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.get("/api/paper/positions")
+        async def get_paper_positions():
+            """Get current paper trading positions"""
+            try:
+                if not self.db:
+                    raise HTTPException(status_code=503, detail="Database not available")
+                
+                positions = await self.db.get_all_paper_positions()
+                position_list = []
+                
+                for position in positions:
+                    # Get token info for symbol
+                    token_info = await self.db.get_token_by_mint(position.mint)
+                    symbol = token_info.symbol if token_info else position.mint[:8]
+                    
+                    # Calculate current value and P&L
+                    current_price_usd = token_info.price if token_info else position.average_price_usd
+                    current_value = position.quantity * current_price_usd
+                    unrealized_pnl = current_value - position.total_cost_usd
+                    unrealized_pnl_pct = (unrealized_pnl / position.total_cost_usd * 100) if position.total_cost_usd > 0 else 0
+                    
+                    position_data = {
+                        "mint": position.mint,
+                        "symbol": symbol,
+                        "quantity": position.quantity,
+                        "average_price_usd": position.average_price_usd,
+                        "total_cost_usd": position.total_cost_usd,
+                        "current_price_usd": current_price_usd,
+                        "current_value": current_value,
+                        "unrealized_pnl": unrealized_pnl,
+                        "unrealized_pnl_pct": unrealized_pnl_pct,
+                        "last_updated": position.last_updated.isoformat() if position.last_updated else None
+                    }
+                    position_list.append(position_data)
+                
+                return {"positions": position_list, "count": len(position_list)}
+                
+            except Exception as e:
+                logger.error(f"Error fetching paper positions: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.get("/api/stats")
+        async def get_platform_stats():
+            """Get platform statistics"""
+            try:
+                if not self.db:
+                    raise HTTPException(status_code=503, detail="Database not available")
+                
+                # Get basic statistics
+                total_tokens = await self.db.count_tokens() if hasattr(self.db, 'count_tokens') else 0
+                active_tokens = len(await self.db.get_top_tokens_for_trading(limit=100))
+                
+                # Get paper trading stats
+                positions = await self.db.get_all_paper_positions()
+                total_positions = len(positions)
+                total_position_value = sum(pos.total_cost_usd for pos in positions)
+                
+                stats = {
+                    "tokens": {
+                        "total": total_tokens,
+                        "active": active_tokens,
+                        "monitoring": active_tokens
+                    },
+                    "paper_trading": {
+                        "positions": total_positions,
+                        "total_value_usd": total_position_value
+                    },
+                    "system": {
+                        "uptime": "Running",
+                        "last_update": datetime.now(timezone.utc).isoformat()
+                    }
+                }
+                
+                return stats
+                
+            except Exception as e:
+                logger.error(f"Error fetching platform stats: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=str(e))
 
-    return app
+# Create the web application instance
+web_app = SupertradeXWebApp()
+app = web_app.app
 
-def main():
-    app = create_app()
-    # Configuration for running the app, e.g., debug mode
-    debug_mode = True # Set based on arguments or environment variables if needed
-    app.run(debug=debug_mode, host='0.0.0.0')
+def run_server(host: str = "127.0.0.1", port: int = 8000):
+    """Run the web server"""
+    logger.info(f"Starting SupertradeX Dashboard on http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
-if __name__ == '__main__':
-    main() 
+if __name__ == "__main__":
+    run_server()

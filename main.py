@@ -181,29 +181,16 @@ class FocusedMonitoringManager:
             )
             self.logger.info("🚀 PumpSwap direct price fetcher initialized")
             
-            # ✅ FIXED: Use specific mint addresses instead of unreliable symbol/dex_id lookup
-            target_mints = {
-                "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263": {  # BONK - Correct mint
-                    "expected_pool": "8BnEgHoWFysVcuFFX7QztDmzuH8r5ZFvyP3sYwn1XTh6",  # Correct Raydium V4 pool
-                    "expected_dex": "raydium_v4"
-                },
-                "7ZYyESa8TkuoBVFi5seeLPr7B3MeLvyPgEgv5MDTpump": {  # Saphi - Correct mint
-                    "expected_pool": "GHtwNAYk8UyABF7gUTLWQmdu5SfHs9vE4SpTkZnPqUAV",  # ✅ FIXED: Correct PumpSwap pool from DB
-                    "expected_dex": "pumpswap"
-                }
-            }
+            # Get tokens from database for focused monitoring (will be populated by TokenScanner)
+            # Only monitor tokens that are already in the database and have valid pair addresses
+            tokens = await self.db.get_valid_tokens()  # Get valid tokens from database
             
-            # Get tokens by specific mint addresses
-            for target_mint, expected_data in target_mints.items():
-                token = await self.db.get_token_by_mint(target_mint)
-                if token and token.pair_address:
-                    # Verify pool address matches expected
-                    if token.pair_address != expected_data["expected_pool"]:
-                        self.logger.warning(f"⚠️ Pool address mismatch for {token.symbol} (mint {target_mint})")
-                        self.logger.warning(f"   Expected: {expected_data['expected_pool']}")
-                        self.logger.warning(f"   Found: {token.pair_address}")
-                        # Continue with database value but log the mismatch
-                    
+            # Limit to top 5 most promising tokens for focused monitoring
+            if tokens:
+                tokens = tokens[:5]
+                
+            for token in tokens:
+                if token.pair_address and token.mint:
                     self.monitored_tokens[token.mint] = FocusedTokenData(
                         symbol=token.symbol,
                         mint=token.mint,
@@ -211,10 +198,8 @@ class FocusedMonitoringManager:
                         pair_address=token.pair_address
                     )
                     self.logger.info(f"🎯 Selected {token.symbol} ({token.dex_id.upper()}) for focused monitoring")
-                    self.logger.info(f"   Mint: {target_mint}")
+                    self.logger.info(f"   Mint: {token.mint}")
                     self.logger.info(f"   Pool: {token.pair_address}")
-                else:
-                    self.logger.error(f"❌ Target token not found in database: mint {target_mint}")
             
             self.logger.info(f"✅ Focused monitoring initialized for {len(self.monitored_tokens)} tokens")
             
@@ -330,7 +315,7 @@ class FocusedMonitoringManager:
             connection_attempts = [
                 {
                     "name": "Helius",
-                    "url": self.settings.SOLANA_WSS_URL or f"{self.settings.HELIUS_WSS_URL.rstrip('/')}?api-key={self.settings.HELIUS_API_KEY}",
+                    "url": self.settings.SOLANA_WSS_URL,  # This is already derived with API key in settings
                     "timeout": 30,
                     "priority": 1
                 },
@@ -986,6 +971,11 @@ try:
     settings = Settings()
     LoggingConfig.setup_logging(settings=settings)
     logger = logging.getLogger(__name__) # Re-get logger after setup
+    
+    # Setup specialized loggers for prices and trades
+    from config.logging_config import setup_specialized_loggers
+    price_logger, trade_logger = setup_specialized_loggers()
+    logger.info("📊 Specialized loggers initialized: prices.log and trades.log")
     # --- Explicitly set websockets logger level to INFO ---
     websockets_logger = logging.getLogger('websockets')
     websockets_logger.setLevel(logging.INFO)
@@ -2323,6 +2313,92 @@ async def get_blockchain_metrics():
             "error": "MarketData not initialized",
             "timestamp": time.time()
         }
+
+@app.get("/api/paper-trading/balance")
+async def get_paper_trading_balance():
+    """Get current paper trading SOL balance"""
+    try:
+        if 'db' in globals():
+            balance_data = await db.get_paper_summary_value('paper_sol_balance')
+            if balance_data and balance_data.get('value_float') is not None:
+                return {"balance": balance_data['value_float'], "currency": "SOL"}
+            else:
+                return {"balance": 0.0, "currency": "SOL"}
+        else:
+            return {"error": "Database not available", "balance": 0.0, "currency": "SOL"}
+    except Exception as e:
+        return {"error": str(e), "balance": 0.0, "currency": "SOL"}
+
+@app.get("/api/paper-trading/positions")
+async def get_paper_trading_positions():
+    """Get all current paper trading positions"""
+    try:
+        if 'db' in globals():
+            positions = await db.get_all_paper_positions()
+            position_list = []
+            for position in positions:
+                # Get token info for symbol
+                token_info = await db.get_token_by_mint(position.mint)
+                symbol = token_info.symbol if token_info else position.mint[:8]
+                
+                position_data = {
+                    "mint": position.mint,
+                    "symbol": symbol,
+                    "quantity": position.quantity,
+                    "total_cost_usd": position.total_cost_usd,
+                    "average_price_usd": position.average_price_usd,
+                    "last_updated": position.last_updated.isoformat() if position.last_updated else None
+                }
+                position_list.append(position_data)
+            return {"positions": position_list}
+        else:
+            return {"error": "Database not available", "positions": []}
+    except Exception as e:
+        return {"error": str(e), "positions": []}
+
+@app.get("/api/paper-trading/tokens")
+async def get_available_tokens():
+    """Get tokens available for paper trading"""
+    try:
+        if 'db' in globals():
+            tokens = await db.get_top_tokens_for_trading(limit=10)
+            token_list = []
+            for token in tokens:
+                # Get SOL price from api_data if available
+                current_price_sol = 0.000001  # Default
+                if token.api_data and 'price_sol' in token.api_data:
+                    current_price_sol = token.api_data['price_sol']
+                elif token.price:
+                    current_price_sol = token.price / 150  # Assume $150/SOL
+                
+                token_data = {
+                    "mint": token.mint,
+                    "symbol": token.symbol or 'UNKNOWN',
+                    "name": token.name or '',
+                    "price_sol": current_price_sol,
+                    "price_usd": token.price or 0,
+                    "volume_24h": token.volume_24h or 0,
+                    "liquidity": token.liquidity or 0,
+                    "dex_id": token.dex_id or '',
+                    "rugcheck_score": token.rugcheck_score or 0
+                }
+                token_list.append(token_data)
+            return {"tokens": token_list}
+        else:
+            return {"error": "Database not available", "tokens": []}
+    except Exception as e:
+        return {"error": str(e), "tokens": []}
+
+@app.post("/api/paper-trading/execute")
+async def execute_paper_trade():
+    """Execute a paper trade"""
+    try:
+        from fastapi import Request
+        # This would need to be implemented with proper request handling
+        # For now, return a placeholder
+        return {"success": False, "message": "Paper trade execution endpoint needs implementation"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
         
 async def get_monitoring_priority_counts():
     """

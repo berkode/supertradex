@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SupertradeX Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-rocket"></i>
+                    <h1>SupertradeX</h1>
+                </div>
+                <div class="header-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Status</span>
+                        <span class="stat-value" id="system-status">
+                            <i class="fas fa-circle status-indicator"></i>
+                            Loading...
+                        </span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Last Update</span>
+                        <span class="stat-value" id="last-update">--:--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="container">
+            
+            <!-- Paper Trading Summary -->
+            <section class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-wallet"></i> Paper Trading Portfolio</h2>
+                    <div class="section-controls">
+                        <button class="btn btn-primary" onclick="refreshData()">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="cards-grid">
+                    <!-- SOL Balance Card -->
+                    <div class="card balance-card">
+                        <div class="card-header">
+                            <h3>SOL Balance</h3>
+                            <i class="fab fa-solana"></i>
+                        </div>
+                        <div class="card-content">
+                            <div class="balance-display">
+                                <span class="balance-amount" id="sol-balance">0.00</span>
+                                <span class="balance-currency">SOL</span>
+                            </div>
+                            <div class="balance-usd" id="sol-balance-usd">$0.00 USD</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Portfolio Summary Card -->
+                    <div class="card portfolio-card">
+                        <div class="card-header">
+                            <h3>Portfolio Summary</h3>
+                            <i class="fas fa-chart-pie"></i>
+                        </div>
+                        <div class="card-content">
+                            <div class="portfolio-stats">
+                                <div class="stat">
+                                    <span class="stat-label">Positions</span>
+                                    <span class="stat-value" id="total-positions">0</span>
+                                </div>
+                                <div class="stat">
+                                    <span class="stat-label">Total Value</span>
+                                    <span class="stat-value" id="total-value">$0.00</span>
+                                </div>
+                                <div class="stat">
+                                    <span class="stat-label">P&L Today</span>
+                                    <span class="stat-value pnl" id="daily-pnl">$0.00</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Active Positions -->
+            <section class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-coins"></i> Active Positions</h2>
+                </div>
+                
+                <div class="table-container">
+                    <table class="data-table" id="positions-table">
+                        <thead>
+                            <tr>
+                                <th>Token</th>
+                                <th>Symbol</th>
+                                <th>Quantity</th>
+                                <th>Avg Price</th>
+                                <th>Current Price</th>
+                                <th>Value</th>
+                                <th>P&L</th>
+                                <th>P&L %</th>
+                            </tr>
+                        </thead>
+                        <tbody id="positions-tbody">
+                            <tr class="loading-row">
+                                <td colspan="8">
+                                    <div class="loading">
+                                        <i class="fas fa-spinner fa-spin"></i>
+                                        Loading positions...
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Token Monitor -->
+            <section class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-chart-line"></i> Token Monitor</h2>
+                    <div class="section-controls">
+                        <select class="select-input" id="token-filter">
+                            <option value="all">All Tokens</option>
+                            <option value="active">Active Only</option>
+                            <option value="high-volume">High Volume</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="table-container">
+                    <table class="data-table" id="tokens-table">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Name</th>
+                                <th>Price (SOL)</th>
+                                <th>Price (USD)</th>
+                                <th>Volume 24h</th>
+                                <th>Liquidity</th>
+                                <th>Rug Score</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tokens-tbody">
+                            <tr class="loading-row">
+                                <td colspan="9">
+                                    <div class="loading">
+                                        <i class="fas fa-spinner fa-spin"></i>
+                                        Loading tokens...
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Platform Statistics -->
+            <section class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-chart-bar"></i> Platform Statistics</h2>
+                </div>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-coins"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="stat-number" id="stat-total-tokens">0</div>
+                            <div class="stat-label">Total Tokens</div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-eye"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="stat-number" id="stat-monitoring">0</div>
+                            <div class="stat-label">Monitoring</div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-chart-line"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="stat-number" id="stat-active">0</div>
+                            <div class="stat-label">Active Trading</div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="stat-number" id="stat-uptime">Running</div>
+                            <div class="stat-label">System Status</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- Trade Modal -->
+    <div class="modal" id="trade-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Execute Trade</h3>
+                <button class="modal-close" onclick="closeTradeModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="trade-form">
+                    <div class="form-group">
+                        <label>Token</label>
+                        <input type="text" id="trade-token" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Action</label>
+                        <select id="trade-action" required>
+                            <option value="BUY">Buy</option>
+                            <option value="SELL">Sell</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Amount (SOL)</label>
+                        <input type="number" id="trade-amount" step="0.001" min="0.001" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Price (SOL per token)</label>
+                        <input type="number" id="trade-price" step="0.000001" min="0.000001" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeTradeModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="executeTrade()">Execute Trade</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2024 SupertradeX. Solana Trading Platform.</p>
+        </div>
+    </footer>
+
+    <script src="/static/script.js"></script>
+</body>
+</html> 

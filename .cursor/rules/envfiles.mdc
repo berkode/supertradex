@@ -1,0 +1,10 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+env variables are in env and env.encyrpted files.
+Secret keys are in env.encyrpted file. 
+Other variables are in env file.
+Codebase reads all setttings thresholds from these files. 
+Do not set constants in setttings thresholds, only read env files as unique source of truth.

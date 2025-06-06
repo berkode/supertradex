@@ -56,6 +56,7 @@ twikit
 statistics
 backoff
 FastAPI 
+psutil
 
 # Settings management
 pydantic

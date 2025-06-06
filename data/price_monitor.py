@@ -527,12 +527,21 @@ class PriceMonitor:
                             
                             if pct_change is not None:
                                 logger.info(f"PRICE UPDATE: {symbol} ({mint[:8]}...) changed from ${old_price:.6f} to ${price_usd:.6f} ({pct_change:+.2f}%)")
+                                # Log to specialized price logger
+                                price_logger = logging.getLogger('prices')
+                                price_logger.info(f"{symbol} ({mint[:8]}...) ${old_price:.6f} → ${price_usd:.6f} ({pct_change:+.2f}%)")
                             else: # Price changed but old price was 0 or new price is same (should be caught by old_price != price_usd)
                                 logger.info(f"PRICE UPDATE: {symbol} ({mint[:8]}...) price is ${price_usd:.6f} (old price was ${old_price:.6f})")
+                                # Log to specialized price logger
+                                price_logger = logging.getLogger('prices')
+                                price_logger.info(f"{symbol} ({mint[:8]}...) ${price_usd:.6f} (was ${old_price:.6f})")
                             self._token_prices[mint] = price_usd
                         # else: Price hasn't changed, no log, no update to self._token_prices needed here as it's same.
                     else: # New token price being set (old_price is None)
                         logger.info(f"PRICE INIT: {symbol} ({mint[:8]}...) initial price set to ${price_usd:.6f}")
+                        # Log to specialized price logger
+                        price_logger = logging.getLogger('prices')
+                        price_logger.info(f"{symbol} ({mint[:8]}...) INIT ${price_usd:.6f}")
                         self._token_prices[mint] = price_usd
 
                     # **ADDED: Record DexScreener price for blockchain vs API comparison**

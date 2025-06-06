@@ -110,9 +110,8 @@ class BlockchainListener:
         self._initialized = False # Initialize state flag
         self._callback = callback # Store with underscore
         
-        # Initialize centralized configuration manager for type-safe config access
-        from config.config_manager import get_config_manager
-        self.config_manager = get_config_manager(settings)
+        # Initialize configuration access directly from settings
+        self.config_manager = settings
         
         # Legacy attributes for backward compatibility
         self.websocket_url = getattr(self.settings, 'SOLANA_WSS_URL', '')

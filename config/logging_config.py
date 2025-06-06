@@ -172,3 +172,42 @@ class LoggingConfig:
         logging.info("🔶 Main log: C/E/W + Important Info only")
         logging.info("🔶 Blockchain events: Separate blockchain_listener.log")
         logging.info("🔶 Price updates: Dedicated price_updates.log every 60s")
+
+def setup_specialized_loggers():
+    """Setup specialized loggers for prices and trades"""
+    import os
+    from datetime import datetime
+    
+    # Ensure outputs directory exists
+    outputs_dir = "outputs"
+    os.makedirs(outputs_dir, exist_ok=True)
+    
+    # Price logger
+    price_logger = logging.getLogger('prices')
+    price_logger.setLevel(logging.INFO)
+    
+    # Remove existing handlers to avoid duplicates
+    for handler in price_logger.handlers[:]:
+        price_logger.removeHandler(handler)
+    
+    price_handler = logging.FileHandler(f'{outputs_dir}/prices.log')
+    price_formatter = logging.Formatter('%(asctime)s - %(message)s')
+    price_handler.setFormatter(price_formatter)
+    price_logger.addHandler(price_handler)
+    price_logger.propagate = False
+    
+    # Trade logger  
+    trade_logger = logging.getLogger('trades')
+    trade_logger.setLevel(logging.INFO)
+    
+    # Remove existing handlers to avoid duplicates
+    for handler in trade_logger.handlers[:]:
+        trade_logger.removeHandler(handler)
+    
+    trade_handler = logging.FileHandler(f'{outputs_dir}/trades.log')
+    trade_formatter = logging.Formatter('%(asctime)s - %(message)s')
+    trade_handler.setFormatter(trade_formatter)
+    trade_logger.addHandler(trade_handler)
+    trade_logger.propagate = False
+    
+    return price_logger, trade_logger

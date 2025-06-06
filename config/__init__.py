@@ -22,13 +22,7 @@ from .dexscreener_api import DexScreenerAPI
 from .thresholds import Thresholds
 from .filters_config import FiltersConfig
 
-# Import centralized configuration manager
-from .config_manager import (
-    ConfigurationManager, ConfigCategory, ConfigMetadata,
-    get_config_manager, initialize_config_manager,
-    get_websocket_config, get_solana_config, get_trading_config,
-    get_api_config, get_config
-)
+# Config manager not available - removed imports
 # Import other config classes as needed...
 # from .twitter_config import TwitterConfig
 # from .raydium_api import RaydiumAPI
@@ -100,20 +94,6 @@ __all__ = [
     'FiltersConfig',
     'Thresholds',
     'LoggingConfig',
-    'RaydiumAPI',
-    'DexScreenerAPI',
-    'TwitterConfig',
     'BASE_DIR',
-    'outputs_dir',
-    # Configuration Manager exports
-    'ConfigurationManager',
-    'ConfigCategory',
-    'ConfigMetadata',
-    'get_config_manager',
-    'initialize_config_manager',
-    'get_websocket_config',
-    'get_solana_config',
-    'get_trading_config',
-    'get_api_config',
-    'get_config'
+    'outputs_dir'
 ]
